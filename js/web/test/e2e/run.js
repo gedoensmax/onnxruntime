@@ -100,6 +100,7 @@ async function testAllBrowserCases({ hostInKarma }) {
   await runKarma({ hostInKarma, main: './browser-test-webgl.js', ortMain: 'ort.webgl.min.js'});
   await runKarma({ hostInKarma, main: './browser-test-wasm.js'});
   await runKarma({ hostInKarma, main: './browser-test-wasm.js', ortMain: 'ort.wasm.min.js'});
+  await runKarma({ hostInKarma, main: './browser-test-wasm-multi-session-create.js'});
   await runKarma({ hostInKarma, main: './browser-test-wasm-no-threads.js'});
   await runKarma({ hostInKarma, main: './browser-test-wasm-no-threads.js', ortMain: 'ort.wasm-core.min.js'});
   await runKarma({ hostInKarma, main: './browser-test-wasm-proxy.js'});
@@ -108,6 +109,7 @@ async function testAllBrowserCases({ hostInKarma }) {
   await runKarma({ hostInKarma, main: './browser-test-wasm-path-override-filename.js', ortMain: 'ort.wasm.min.js'});
   await runKarma({ hostInKarma, main: './browser-test-wasm-path-override-prefix.js'});
   await runKarma({ hostInKarma, main: './browser-test-wasm-path-override-prefix.js', ortMain: 'ort.wasm.min.js'});
+  await runKarma({ hostInKarma, main: './browser-test-wasm-image-tensor-image.js'});
 }
 
 async function runKarma({ hostInKarma, main, browser = 'Chrome_default', ortMain = 'ort.min.js' }) {

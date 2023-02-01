@@ -4,6 +4,8 @@
 #pragma once
 
 #include <string>
+#include <vector>
+#include "core/common/inlined_containers.h"
 #include "core/graph/basic_types.h"
 #include "core/providers/nnapi/nnapi_builtin/nnapi_lib/NeuralNetworksTypes.h"
 
@@ -18,12 +20,11 @@
 //       get the actually Android system version.
 //       If running on an actual Android system, this value will be ignored
 #ifndef ORT_NNAPI_MAX_SUPPORTED_API_LEVEL
-#define ORT_NNAPI_MAX_SUPPORTED_API_LEVEL 30
+#define ORT_NNAPI_MAX_SUPPORTED_API_LEVEL 31
 #endif
 
 namespace onnxruntime {
 
-using Shape = std::vector<uint32_t>;
 using InitializerMap = std::unordered_map<std::string, const ONNX_NAMESPACE::TensorProto&>;
 
 class GraphViewer;
@@ -35,6 +36,8 @@ class Path;
 struct NodeUnitIODef;
 
 namespace nnapi {
+
+using Shape = InlinedVector<uint32_t>;
 
 class IOpSupportChecker;
 struct OpSupportCheckParams;
@@ -82,12 +85,20 @@ enum class QuantizedOpType : uint8_t {
   QLinearAdd,
   QLinearSigmoid,
   QLinearAveragePool,
+  QLinearMul,
   // Not yet supported
-  // QLinearMul,
   // QLinearReduceMean,
   QDQConv,
   QDQResize,
   QDQAveragePool,
+  QDQAdd,
+  QDQMul,
+  QDQTranspose,
+  QDQReshape,
+  QDQSoftmax,
+  QDQConcat,
+  QDQGemm,
+  QDQMatMul,
   // TODO, add other QDQ NodeUnit types
 };
 
@@ -109,22 +120,15 @@ bool IsQuantizedConv(QuantizedOpType quant_op_type);
 // If this is a quantized Pool (QLinearAveragePool or QDQAveragePool)
 bool IsQuantizedPool(QuantizedOpType quant_op_type);
 
+// If this is a quantized Gemm (QLinearMatMul or QDQMatMul/QDQGemm)
+bool IsQuantizedGemm(QuantizedOpType quant_op_type);
+
 // This quantized op is an operator or qdq node unit takes 2 inputs and produces 1 output
 // Such as QLinearConv, QLinearMatMul, QLinearAdd, QDQConv,...
 bool IsQuantizedBinaryOp(QuantizedOpType quant_op_type);
 
-// Check if a qlinear unary op has valid inputs, Qlinear[Sigmoid/AveragePool]
-bool HasValidUnaryOpQuantizedInputs(const NodeUnit& node_unit);
 // Check if a qlinear binary op has valid inputs, Qlinear[Conv/MatMul/Add]
-bool HasValidBinaryOpQuantizedInputs(const NodeUnit& node_unit);
-
-// Check if a qlinear op has valid scales for given indices
-bool HasValidQuantizationScales(const InitializedTensorSet& initializers, const NodeUnit& node_unit,
-                                const std::vector<size_t>& indices, const OpSupportCheckParams& params, bool is_input);
-
-// Check if a qlinear op has valid zero points for given indices
-bool HasValidQuantizationZeroPoints(const InitializedTensorSet& initializers, const NodeUnit& node_unit,
-                                    const std::vector<size_t>& indices, bool is_input);
+bool HasValidBinaryOpQuantizedInputTypes(const NodeUnit& node_unit);
 
 common::Status GetQuantizationScaleAndZeroPoint(
     const InitializedTensorSet& initializers, const NodeUnitIODef& io_def, const Path& model_path,
@@ -132,15 +136,15 @@ common::Status GetQuantizationScaleAndZeroPoint(
 
 common::Status GetQuantizationScaleAndZeroPoint(
     const InitializedTensorSet& initializers, const NodeUnit& node_unit, const std::string& name,
-    float& scale, int32_t& zero_point, bool is_input = true);
+    float& scale, int32_t& zero_point, ArgType arg_type = ArgType::kInput);
 
 // Get Shape/Type of a NodeArg
 // TODO, move to shared_utils
 bool GetShape(const NodeArg& node_arg, Shape& shape);
 bool GetType(const NodeArg& node_arg, int32_t& type);
 
-// Get the output shape of Flatten Op
-void GetFlattenOutputShape(const NodeUnit& node_unit, const Shape& input_shape, int32_t& dim_1, int32_t& dim_2);
+// Get the shape information from NodeArg
+Shape GetShapeInfoFromNodeArg(const GraphViewer& graph_viewer, const std::string& name);
 
 // If a node is supported by NNAPI
 bool IsNodeSupported(const NodeUnit& node_unit, const GraphViewer& graph_viewer, const OpSupportCheckParams& params);
@@ -155,7 +159,12 @@ bool IsNodeSupportedInGroup(const NodeUnit& node_unit, const GraphViewer& graph_
 bool IsValidSupportedNodeGroup(const std::vector<const Node*>& supported_node_group);
 
 // Get string representation of a Shape
-std::string Shape2String(const std::vector<uint32_t>& shape);
+std::string Shape2String(const Shape& shape);
+
+uint32_t ShapeSize(const Shape& shape, size_t begin_idx, size_t end_idx);
+inline uint32_t ShapeSize(const Shape& shape) {
+  return ShapeSize(shape, 0, shape.size());
+}
 
 // Check the given input is an initializer tensor
 // input_name is the name of the initializer

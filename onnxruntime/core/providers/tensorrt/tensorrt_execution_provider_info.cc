@@ -28,7 +28,9 @@ constexpr const char* kDecryptionEnable = "trt_engine_decryption_enable";
 constexpr const char* kDecryptionLibPath = "trt_engine_decryption_lib_path";
 constexpr const char* kForceSequentialEngineBuild = "trt_force_sequential_engine_build";
 constexpr const char* kTimingCacheEnable = "trt_timing_cache_enable";
-// add new provider option name here. 
+// add new provider option name here.
+constexpr const char* kContextMemorySharingEnable = "trt_context_memory_sharing_enable";
+constexpr const char* kLayerNormFP32Fallback = "trt_layer_norm_fp32_fallback";
 }  // namespace provider_option_names
 }  // namespace tensorrt 
 
@@ -41,9 +43,7 @@ TensorrtExecutionProviderInfo TensorrtExecutionProviderInfo::FromProviderOptions
               [&info](const std::string& value_str) -> Status {
                 ORT_RETURN_IF_ERROR(ParseStringWithClassicLocale(value_str, info.device_id));
                 int num_devices{};
-                ORT_RETURN_IF_NOT(
-                    CUDA_CALL(cudaGetDeviceCount(&num_devices)),
-                    "cudaGetDeviceCount() failed.");
+                CUDA_RETURN_IF_ERROR(cudaGetDeviceCount(&num_devices));
                 ORT_RETURN_IF_NOT(
                     0 <= info.device_id && info.device_id < num_devices,
                     "Invalid device ID: ", info.device_id,
@@ -65,8 +65,10 @@ TensorrtExecutionProviderInfo TensorrtExecutionProviderInfo::FromProviderOptions
           .AddAssignmentToReference(tensorrt::provider_option_names::kDecryptionEnable, info.engine_decryption_enable)
           .AddAssignmentToReference(tensorrt::provider_option_names::kDecryptionLibPath, info.engine_decryption_lib_path) 
           .AddAssignmentToReference(tensorrt::provider_option_names::kForceSequentialEngineBuild, info.force_sequential_engine_build)
+          .AddAssignmentToReference(tensorrt::provider_option_names::kContextMemorySharingEnable, info.context_memory_sharing_enable)
+          .AddAssignmentToReference(tensorrt::provider_option_names::kLayerNormFP32Fallback, info.layer_norm_fp32_fallback)
           .AddAssignmentToReference(tensorrt::provider_option_names::kTimingCacheEnable, info.timing_cache_enable)
-          .Parse(options)); //add new provider option here.
+          .Parse(options)); // add new provider option here.
 
   return info;
 }
@@ -92,6 +94,8 @@ ProviderOptions TensorrtExecutionProviderInfo::ToProviderOptions(const TensorrtE
       {tensorrt::provider_option_names::kForceSequentialEngineBuild, MakeStringWithClassicLocale(info.force_sequential_engine_build)},
       {tensorrt::provider_option_names::kTimingCacheEnable, MakeStringWithClassicLocale(info.timing_cache_enable)},
       // add new provider option here.
+      {tensorrt::provider_option_names::kContextMemorySharingEnable, MakeStringWithClassicLocale(info.context_memory_sharing_enable)},
+      {tensorrt::provider_option_names::kLayerNormFP32Fallback, MakeStringWithClassicLocale(info.layer_norm_fp32_fallback)},
   };
   return options;
 }

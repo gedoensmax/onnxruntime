@@ -25,7 +25,7 @@
 #include "orttraining/models/runner/training_util.h"
 #include "orttraining/core/optimizer/megatron_transformer.h"
 
-//Gist Encoding
+// Gist Encoding
 #include "orttraining/core/optimizer/gist_encode_decode.h"
 
 #include "orttraining/training_ops/cpu/controlflow/event_pool.h"
@@ -36,7 +36,7 @@
 #ifdef ENABLE_NVTX_PROFILE
 #include <set>
 #include <thread>
-#include "core/profile/context.h"
+#include "core/providers/cuda/nvtx_profile_context.h"
 #endif
 
 namespace onnxruntime {
@@ -349,7 +349,7 @@ Status TrainingSession::ConfigureForTraining(
                                          config.distributed_config.horizontal_parallel_size,
                                          config.distributed_config.pipeline_parallel_size});
 #if !defined(ORT_MINIMAL_BUILD) && defined(ORT_MEMORY_PROFILE)
-  MemoryInfo::SetLocalRank(config.distributed_config.world_rank);
+  GetMemoryProfiler().GetMemoryInfo().SetLocalRank(config.distributed_config.world_rank);
 #endif
 
 #ifdef USE_MPI
@@ -754,10 +754,14 @@ void TrainingSession::AddPreTrainingTransformers(const IExecutionProvider& execu
 }
 
 // Registers all the predefined transformers with transformer manager
-Status TrainingSession::AddPredefinedTransformers(GraphTransformerManager& transformer_manager,
-                                                  TransformerLevel graph_optimization_level,
-                                                  bool saving_runtime_optimizations) const {
-  ORT_RETURN_IF(saving_runtime_optimizations, "Saving runtime optimizations is not supported by TrainingSession.");
+Status TrainingSession::AddPredefinedTransformers(
+    GraphTransformerManager& transformer_manager,
+    TransformerLevel graph_optimization_level,
+    MinimalBuildOptimizationHandling minimal_build_optimization_handling,
+    RecordRuntimeOptimizationProducedNodeOpSchemaFn /*record_runtime_optimization_produced_op_schema_fn*/) const {
+  ORT_RETURN_IF_NOT(
+      minimal_build_optimization_handling == MinimalBuildOptimizationHandling::ApplyFullBuildOptimizations,
+      "Only applying full build optimizations is supported by TrainingSession.");
 
   ORT_RETURN_IF_NOT(graph_optimization_level <= TransformerLevel::MaxLevel,
                     "Exceeded max transformer level. Current level is set to " +
@@ -791,7 +795,7 @@ Status TrainingSession::ApplyModelParallelTransformationsToMainGraph(std::unorde
   // CPU allocator for partitioning the optimizer state by column.
   std::unique_ptr<CPUExecutionProvider> cpu_execution_provider =
       std::make_unique<CPUExecutionProvider>(CPUExecutionProviderInfo());
-  std::unordered_set<std::string> compatible_eps = {};
+  InlinedHashSet<std::string_view> compatible_eps = {};
   LOGS_DEFAULT(WARNING) << horizontal_parallel_size << "-way horizontal model parallel is enabled";
   transformers_to_register.emplace_back(std::make_unique<MegatronTransformer>(
       training::DistributedRunContext::RankInGroup(training::WorkerGroupType::HorizontalParallel),
@@ -1415,7 +1419,7 @@ std::unordered_set<std::string> TrainingSession::GetTrainableModelInitializers(
   };
 
   // perform reverse dfs from output node to discover trainable parameters
-  graph.ReverseDFSFrom({graph.GetProducerNode(loss_name)}, add_trainable_initializers, {}, {}, stop_at_untrainable);
+  graph.ReverseDFSFrom(std::array{graph.GetProducerNode(loss_name)}, add_trainable_initializers, {}, {}, stop_at_untrainable);
   return trainable_initializers;
 }
 

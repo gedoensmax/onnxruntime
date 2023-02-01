@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "core/framework/inlined_containers.h"
+#include "core/common/inlined_containers.h"
 #include "core/providers/cuda/tensor/transpose.h"
 #include "core/providers/cuda/tensor/transpose_impl.h"
 #include "core/providers/cpu/tensor/utils.h"
@@ -78,27 +78,34 @@ Status TransposeWithCublas(cudaStream_t stream, cublasHandle_t cublas_handle, co
 }
 
 Status Transpose::DoTranspose(const Transpose& transpose_kernel,
+                              onnxruntime::Stream* ort_stream,
                               const gsl::span<const size_t>& permutations, const Tensor& input, Tensor& output) {
-  return Transpose::DoTranspose(transpose_kernel.GetDeviceProp(), transpose_kernel.Stream(), transpose_kernel.CublasHandle(), permutations, input, output);
+  cudaStream_t cuda_stream = ort_stream ? static_cast<cudaStream_t>(ort_stream->GetHandle()) : nullptr;
+  return Transpose::DoTranspose(transpose_kernel.GetDeviceProp(),
+                                cuda_stream,
+                                CudaKernel::GetCublasHandle(static_cast<CudaStream*>(ort_stream)),
+                                permutations,
+                                input, output);
 }
 
 Status Transpose::DoTranspose(const cudaDeviceProp& prop,
                               cudaStream_t stream,
                               const cublasHandle_t cublas_handle,
                               const gsl::span<const size_t>& permutations, const Tensor& input, Tensor& output,
-                              const TensorShape* input_shape_override) {
+                              const TensorShape* input_shape_override,
+                              const TensorShape* output_shape_override) {
   // special case when there is a dim value of 0 in the shape.
   if (output.Shape().Size() == 0)
     return Status::OK();
 
   const auto input_dims = input_shape_override ? input_shape_override->GetDims() : input.Shape().GetDims();
-  const auto output_dims = output.Shape().GetDims();
+  const auto output_dims = output_shape_override ? output_shape_override->GetDims() : output.Shape().GetDims();
   auto rank = static_cast<int32_t>(input_dims.size());
 
   // flatten the adjacent dimensions which are contiguous
   // for example: permutations[0, 2, 3, 1] -> [0, 2, 1], permutations[0, 3, 1, 2] -> [0, 2, 1]
   auto new_rank = rank;
-  InlinedShapeVector<size_t> new_permutations(permutations.cbegin(), permutations.cend());
+  InlinedVector<size_t> new_permutations(permutations.begin(), permutations.end());
   TensorShapeVector new_input_dims = ToShapeVector(input_dims);
   TensorShapeVector new_output_dims = ToShapeVector(output_dims);
 
@@ -202,7 +209,7 @@ Status Transpose::DoTranspose(const cudaDeviceProp& prop,
 
   // Transpose021 has a specialized Transpose3DImpl kernel
   dim3 grid_size, block_size;
-  if (CanDoTranspose3D(prop, new_rank, new_input_dims, new_permutations, grid_size, block_size)) {
+  if (CanDoTranspose3D(prop, static_cast<size_t>(new_rank), new_input_dims, new_permutations, grid_size, block_size)) {
     TensorPitches new_input_strides(new_input_dims);
     return Transpose3DImpl(stream, element_size, ToConstSpan(new_input_dims), ToConstSpan(new_input_strides),
                            input.DataRaw(), output.MutableDataRaw(), output.Shape().Size(), grid_size, block_size);
@@ -265,8 +272,8 @@ Status Transpose::ComputeInternal(OpKernelContext* ctx) const {
   int32_t rank = gsl::narrow_cast<int32_t>(input_shape.NumDimensions());
 
   TensorShapeVector output_dims(rank);
-  InlinedShapeVector<size_t> default_perm(rank);
-  const InlinedShapeVector<size_t>* p_perm = nullptr;
+  InlinedVector<size_t> default_perm(rank);
+  const InlinedVector<size_t>* p_perm = nullptr;
   const auto& status = ComputeOutputShape(X, output_dims, default_perm, p_perm);
   if (!status.IsOK())
     return status;
@@ -274,7 +281,7 @@ Status Transpose::ComputeInternal(OpKernelContext* ctx) const {
   TensorShape output_shape{output_dims};
   Tensor* Y = ctx->Output(0, output_shape);
 
-  return DoTranspose(this->GetDeviceProp(), this->Stream(), this->CublasHandle(), *p_perm, X, *Y);
+  return DoTranspose(this->GetDeviceProp(), this->Stream(ctx), this->GetCublasHandle(ctx), *p_perm, X, *Y);
 }
 
 }  // namespace cuda

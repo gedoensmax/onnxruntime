@@ -3,19 +3,22 @@
 
 #include "quantize_linear_matmul.h"
 
+#include "core/common/narrow.h"
+#include "core/common/safeint.h"
 #include "core/framework/op_kernel.h"
 #include "core/providers/cpu/math/matmul_helper.h"
-#include "core/common/safeint.h"
 #include "core/providers/common.h"
 #include "core/util/math_cpuonly.h"
 #include "core/util/qmath.h"
 #include "core/mlas/inc/mlas.h"
 
 namespace onnxruntime {
-ONNX_OPERATOR_KERNEL_EX(
+// uint8_t kernel supports weight being either uint8_t or int8_t
+ONNX_OPERATOR_TYPED_KERNEL_EX(
     QLinearMatMul,
     kOnnxDomain,
     10,
+    uint8_t,
     kCpuExecutionProvider,
     KernelDefBuilder()
         .TypeConstraint("T1", DataTypeImpl::GetTensorType<uint8_t>())
@@ -23,20 +26,21 @@ ONNX_OPERATOR_KERNEL_EX(
         .TypeConstraint("T3", DataTypeImpl::GetTensorType<uint8_t>()),
     QLinearMatMul);
 
-#define REGISTER_QLINEARMATMUL_TYPED_KERNEL(act_type, weight_type)          \
-  ONNX_OPERATOR_TYPED_KERNEL_EX(                                            \
-      QLinearMatMul,                                                        \
-      kOnnxDomain,                                                          \
-      10,                                                                   \
-      act_type##_##weight_type,                                             \
-      kCpuExecutionProvider,                                                \
-      KernelDefBuilder()                                                    \
-          .TypeConstraint("T1", DataTypeImpl::GetTensorType<act_type>())    \
-          .TypeConstraint("T2", DataTypeImpl::GetTensorType<weight_type>()) \
-          .TypeConstraint("T3", DataTypeImpl::GetTensorType<act_type>()),   \
+// int8_t kernel only supports weight being int8_t
+#define REGISTER_QLINEARMATMUL_INT8_KERNEL()                            \
+  ONNX_OPERATOR_TYPED_KERNEL_EX(                                        \
+      QLinearMatMul,                                                    \
+      kOnnxDomain,                                                      \
+      10,                                                               \
+      int8_t,                                                           \
+      kCpuExecutionProvider,                                            \
+      KernelDefBuilder()                                                \
+          .TypeConstraint("T1", DataTypeImpl::GetTensorType<int8_t>())  \
+          .TypeConstraint("T2", DataTypeImpl::GetTensorType<int8_t>())  \
+          .TypeConstraint("T3", DataTypeImpl::GetTensorType<int8_t>()), \
       QLinearMatMul);
 
-REGISTER_QLINEARMATMUL_TYPED_KERNEL(int8_t, int8_t);
+REGISTER_QLINEARMATMUL_INT8_KERNEL();
 
 Status QLinearMatMul::Compute(OpKernelContext* ctx) const {
   const auto* a = ctx->Input<Tensor>(IN_A);
@@ -82,14 +86,14 @@ Status QLinearMatMul::Compute(OpKernelContext* ctx) const {
   if (y->Shape().Size() == 0)
     return Status::OK();
 
-  const auto* b_scale_data = b_scale->template Data<float>();
-  auto a_scale_data = *(a_scale->template Data<float>());
-  auto y_scale_data = *(y_scale->template Data<float>());
+  const auto* b_scale_data = b_scale->Data<float>();
+  auto a_scale_data = *(a_scale->Data<float>());
+  auto y_scale_data = *(y_scale->Data<float>());
 
   const int64_t output_scale_size = b_scale->Shape().Size();
-  std::vector<float> output_scales(output_scale_size);
+  std::vector<float> output_scales(narrow<size_t>(output_scale_size));
   for (int64_t i = 0; i < output_scale_size; i++) {
-    output_scales[i] = (a_scale_data * b_scale_data[i] / y_scale_data);
+    output_scales[narrow<size_t>(i)] = (a_scale_data * b_scale_data[narrow<size_t>(i)] / y_scale_data);
   }
 
   const size_t num_gemms = helper.OutputOffsets().size();
@@ -104,7 +108,7 @@ Status QLinearMatMul::Compute(OpKernelContext* ctx) const {
   ORT_RETURN_IF_ERROR(ctx->GetTempSpaceAllocator(&alloc));
   auto gemm_output_data = alloc->Alloc(SafeInt<size_t>(gemm_shape.M) *
                                        gemm_shape.N * sizeof(int32_t) * num_gemms);
-  BufferUniquePtr gemm_output_buffer(gemm_output_data, BufferDeleter(alloc));
+  BufferUniquePtr gemm_output_buffer(gemm_output_data, BufferDeleter(std::move(alloc)));
   auto* gemm_output = static_cast<int32_t*>(gemm_output_buffer.get());
 
   std::vector<MLAS_GEMM_QUANT_DATA_PARAMS> gemm_params(num_gemms);

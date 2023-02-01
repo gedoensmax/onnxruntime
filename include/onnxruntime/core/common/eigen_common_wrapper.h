@@ -25,6 +25,22 @@
 #ifdef HAS_CLASS_MEMACCESS
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
+
+// cmake/external/eigen\Eigen/src/Core/util/Meta.h:454:25:
+// error: 'result_of<Eigen::internal::scalar_product_op<unsigned long long> (const unsigned long long &, const unsigned long long &)>'
+// is deprecated [-Werror,-Wdeprecated-declarations]
+//   typedef typename std::result_of<T>::type type1;
+#ifdef HAS_DEPRECATED_DECLARATIONS
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+// cmake/external/eigen\Eigen/CXX11/src/Tensor/TensorTrace.h:130:9:
+// error: variable 'num_distinct_reduce_dims' set but not used [-Werror,-Wunused-but-set-variable]
+//   int num_distinct_reduce_dims = 0;
+#ifdef HAS_UNUSED_BUT_SET_VARIABLE
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#endif
+
 #elif defined(_MSC_VER)
 // build\windows\debug\external\eigen3\unsupported\eigen\cxx11\src/Tensor/Tensor.h(76):
 // warning C4554: '&': check operator precedence for possible error; use parentheses to clarify precedence

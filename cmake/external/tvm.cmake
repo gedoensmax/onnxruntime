@@ -1,36 +1,22 @@
-if (onnxruntime_USE_STVM)
-  message(STATUS "onnxruntime_USE_STVM: Fetch tvm for STVM.")
+if (onnxruntime_USE_TVM)
+  message(STATUS "onnxruntime_USE_TVM: Fetch tvm for TVM EP")
 
   FetchContent_Declare(
     tvm
     GIT_REPOSITORY https://github.com/apache/tvm.git
-    GIT_TAG        v0.8.0
+    GIT_TAG        2379917985919ed3918dc12cad47f469f245be7a
   )
 
   FetchContent_GetProperties(tvm)
   if(NOT tvm_POPULATED)
     FetchContent_Populate(tvm)
-  endif()
-
-  set(tvm_INCLUDE_DIRS ${tvm_SOURCE_DIR}/include)
-  set(onnxruntime_STVM_HOME ${tvm_SOURCE_DIR})
-  message(STATUS "Define onnxruntime_STVM_HOME.")
-  message(STATUS ${onnxruntime_STVM_HOME})
-
-endif()
-
-if (onnxruntime_USE_NUPHAR)
-  message(STATUS "onnxruntime_USE_NUPHAR: Fetch onnxruntime-tvm for NUPHAR.")
-
-  FetchContent_Declare(
-    tvm
-    GIT_REPOSITORY https://github.com/microsoft/onnxruntime-tvm.git
-    GIT_TAG        9ec2b92d180dff8877e402018b97baa574031b8b
-  )
-
-  FetchContent_GetProperties(tvm)
-  if(NOT tvm_POPULATED)
-    FetchContent_Populate(tvm)
+    if (WIN32)
+      execute_process(
+        COMMAND ${CMAKE_COMMAND} -E create_symlink ${tvm_BINARY_DIR}/${CMAKE_BUILD_TYPE} ${tvm_SOURCE_DIR}/build
+      )
+    else()
+      file(CREATE_LINK ${tvm_BINARY_DIR} ${tvm_SOURCE_DIR}/build SYMBOLIC)
+    endif()
   endif()
 
   set(tvm_INCLUDE_DIRS ${tvm_SOURCE_DIR}/include)

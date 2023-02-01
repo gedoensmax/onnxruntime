@@ -98,7 +98,7 @@ struct MLTypeTraits<uint64_t>
 };
 
 template <>
-struct MLTypeTraits<onnxruntime::MLFloat16> 
+struct MLTypeTraits<onnxruntime::MLFloat16>
 {
   static const MLOperatorTensorDataType TensorType = MLOperatorTensorDataType::Float16;
 };
@@ -190,10 +190,10 @@ class MLOperatorTensorShapeDescription
         return ret;
     }
 
-    Microsoft::WRL::ComPtr<IMLOperatorTensorShapeDescription> GetInterface() const { return m_impl; }
+    Microsoft::WRL::ComPtr<IMLOperatorTensorShapeDescription> GetInterface() const noexcept { return m_impl; }
 
  protected:
-    Microsoft::WRL::ComPtr<IMLOperatorTensorShapeDescription> m_impl ;
+    Microsoft::WRL::ComPtr<IMLOperatorTensorShapeDescription> m_impl;
 };
 
 class MLOperatorAttributes
@@ -203,8 +203,14 @@ class MLOperatorAttributes
     {
     }
 
+    // For cases of interop where the caller needs to pass the unwrapped class across a boundary.
+    Microsoft::WRL::ComPtr<IMLOperatorAttributes> GetInterface() const noexcept
+    {
+        return m_impl;
+    }
+
     uint32_t GetAttributeElementCount(
-        _In_z_ MLConstStringParam name, 
+        _In_z_ MLConstStringParam name,
         MLOperatorAttributeType type) const
     {
         uint32_t elementCount;
@@ -290,7 +296,7 @@ class MLOperatorAttributes
         {
             auto vector64Bit = GetAttributeVector<int64_t>(attributeName);
             vector32Bit.resize(vector64Bit.size());
-            std::transform(vector64Bit.begin(), vector64Bit.end(), /*out*/vector32Bit.begin(), [](auto i) 
+            std::transform(vector64Bit.begin(), vector64Bit.end(), /*out*/vector32Bit.begin(), [](auto i)
                                     {return gsl::narrow_cast<int32_t>(std::clamp<int64_t>(i, INT32_MIN, INT32_MAX)); });
         }
         return vector32Bit;
@@ -302,7 +308,7 @@ class MLOperatorAttributes
             ?  GetAttributeVector(attributeName)
             :  std::vector<std::string>{}; // Empty vector if attribute absent.
     }
-    
+
     // Not implemented
     template <typename T> T GetOptionalAttribute(MLConstStringParam attributeName, T defaultValue) const;
 
@@ -504,7 +510,7 @@ public:
     {
         return m_impl->GetOutputCount();
     }
-    
+
     bool IsInputValid(uint32_t index) const {
         return m_impl->IsInputValid(index);
     }
@@ -556,7 +562,7 @@ public:
 class MLShapeInferenceContext : public MLOperatorAttributes
 {
 public:
-    MLShapeInferenceContext(IMLOperatorShapeInferenceContext* impl) : MLOperatorAttributes(impl) 
+    MLShapeInferenceContext(IMLOperatorShapeInferenceContext* impl) : MLOperatorAttributes(impl)
     {
         ORT_THROW_IF_FAILED(impl->QueryInterface(m_impl.GetAddressOf()));
     }
@@ -638,7 +644,7 @@ public:
     MLOperatorTypeInferenceContext(IMLOperatorTypeInferenceContext* impl) : MLOperatorAttributes(impl), m_impl(impl) {}
 
     // For cases of interop where the caller needs to pass the unwrapped class across a boundary.
-     Microsoft::WRL::ComPtr<IMLOperatorTypeInferenceContext> GetInterface() const noexcept
+    Microsoft::WRL::ComPtr<IMLOperatorTypeInferenceContext> GetInterface() const noexcept
     {
         return m_impl;
     }
@@ -729,7 +735,7 @@ public:
 // supports STL types, and converts exceptions to return values.
 template <class T>
 class MLOperatorKernel : public Microsoft::WRL::RuntimeClass<
-    Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IMLOperatorKernel>, 
+    Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IMLOperatorKernel>,
     public T
 {
 public:

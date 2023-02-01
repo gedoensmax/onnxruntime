@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include <memory>
+#include <optional>
 
 #include "core/platform/threadpool.h"
 #include "core/common/common.h"
@@ -135,6 +136,8 @@ void ThreadPoolProfiler::MainThreadStat::LogCore() {
 #endif
 #elif defined(__wasm__)
   core_ = emscripten_num_logical_cores();
+#elif defined(_AIX)
+  core_ = mycpu();
 #else
   core_ = sched_getcpu();
 #endif
@@ -217,6 +220,8 @@ void ThreadPoolProfiler::LogRun(int thread_idx) {
 #endif
 #elif defined(__wasm__)
       child_thread_stats_[thread_idx].core_ = emscripten_num_logical_cores();
+#elif defined(_AIX)
+      child_thread_stats_[thread_idx].core_ = mycpu();
 #else
       child_thread_stats_[thread_idx].core_ = sched_getcpu();
 #endif
@@ -368,14 +373,22 @@ ThreadPool::ThreadPool(Env* env,
                        const ThreadOptions& thread_options,
                        const NAME_CHAR_TYPE* name,
                        int degree_of_parallelism,
-                       bool low_latency_hint)
-    : thread_options_(thread_options) {
+                       bool low_latency_hint,
+                       bool force_hybrid)
+    : thread_options_(thread_options), force_hybrid_(force_hybrid) {
   // In the current implementation, a thread pool with degree_of_parallelism==1 uses
   // the caller as one of the threads for executing work.  Hence we only create
   // additional thread(s) for degree_of_parallelism>=2.
   assert(degree_of_parallelism >= 1);
   if (degree_of_parallelism >= 2) {
     int threads_to_create = degree_of_parallelism - 1;
+
+    if (!thread_options_.affinities.empty()) {
+      // Remove first affinity element as designated for the caller thread
+      thread_options_.affinities.erase(thread_options_.affinities.begin());
+      assert(thread_options_.affinities.size() >= size_t(threads_to_create));
+    }
+
     extended_eigen_threadpool_ =
         std::make_unique<ThreadPoolTempl<Env> >(name,
                                                 threads_to_create,
@@ -444,7 +457,9 @@ void ThreadPool::ParallelForFixedBlockSizeScheduling(const std::ptrdiff_t total,
         }
       }
     };
-    RunInParallel(run_work, d_of_p, base_block_size);
+    // Distribute task among all threads in the pool, reduce number of work items if 
+    // num_of_blocks is smaller than number of threads.
+    RunInParallel(run_work, std::min(NumThreads() + 1, num_of_blocks), base_block_size);
   }
 }
 
@@ -478,31 +493,32 @@ std::string ThreadPool::StopProfiling() {
   }
 }
 
-thread_local ThreadPool::ParallelSection* ThreadPool::ParallelSection::current_parallel_section{nullptr};
+namespace {
+thread_local std::optional<ThreadPoolParallelSection> current_parallel_section;
+}
 
 ThreadPool::ParallelSection::ParallelSection(ThreadPool* tp) {
-  ORT_ENFORCE(!current_parallel_section, "Nested parallelism not supported");
-  ORT_ENFORCE(!ps_.get());
+  ORT_ENFORCE(!current_parallel_section.has_value(), "Nested parallelism not supported");
+  ORT_ENFORCE(!ps_);
   tp_ = tp;
   if (tp && tp->underlying_threadpool_) {
-    ps_ = tp->underlying_threadpool_->AllocateParallelSection();
-    tp_->underlying_threadpool_->StartParallelSection(*ps_.get());
-    current_parallel_section = this;
+    current_parallel_section.emplace();
+    ps_ = &*current_parallel_section;
+    tp_->underlying_threadpool_->StartParallelSection(*ps_);
   }
 }
 
 ThreadPool::ParallelSection::~ParallelSection() {
   if (current_parallel_section) {
-    tp_->underlying_threadpool_->EndParallelSection(*ps_.get());
-    ps_.reset();
-    current_parallel_section = nullptr;
+    tp_->underlying_threadpool_->EndParallelSection(*ps_);
+    current_parallel_section.reset();
   }
 }
 
 void ThreadPool::RunInParallel(std::function<void(unsigned idx)> fn, unsigned n, std::ptrdiff_t block_size) {
   if (underlying_threadpool_) {
-    if (ThreadPool::ParallelSection::current_parallel_section) {
-      underlying_threadpool_->RunInParallelSection(*(ThreadPool::ParallelSection::current_parallel_section->ps_.get()),
+    if (current_parallel_section.has_value()) {
+      underlying_threadpool_->RunInParallelSection(*current_parallel_section,
                                                    std::move(fn),
                                                    n, block_size);
     } else {
@@ -623,7 +639,7 @@ int ThreadPool::DegreeOfParallelism(const concurrency::ThreadPool* tp) {
   // When not using OpenMP, we parallelise over the N threads created by the pool
   // tp, plus 1 for the thread entering a loop.
   if (tp) {
-    if (CPUIDInfo::GetCPUIDInfo().IsHybrid()) {
+    if (tp->force_hybrid_ || CPUIDInfo::GetCPUIDInfo().IsHybrid()) {
       return ((tp->NumThreads() + 1)) * TaskGranularityFactor;
     } else {
       return ((tp->NumThreads() + 1));
@@ -644,6 +660,18 @@ std::string ThreadPool::StopProfiling(concurrency::ThreadPool* tp) {
     return tp->StopProfiling();
   } else {
     return {};
+  }
+}
+
+void ThreadPool::EnableSpinning() {
+  if (extended_eigen_threadpool_) {
+    extended_eigen_threadpool_->EnableSpinning();
+  }
+}
+
+void ThreadPool::DisableSpinning() {
+  if (extended_eigen_threadpool_) {
+    extended_eigen_threadpool_->DisableSpinning();
   }
 }
 

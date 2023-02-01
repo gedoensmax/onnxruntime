@@ -42,7 +42,7 @@ static std::unique_ptr<DefaultThreadPoolType> default_pool;
 static std::once_flag default_pool_init;
 Eigen::ThreadPoolInterface* GetDefaultThreadPool(const onnxruntime::Env& env) {
   std::call_once(default_pool_init, [&env] {
-    int core_num = env.GetNumCpuCores();
+    int core_num = env.GetNumPhysicalCpuCores();
     default_pool = std::make_unique<DefaultThreadPoolType>(core_num);
   });
   return default_pool.get();
@@ -147,6 +147,7 @@ Status PerformanceRunner::Run() {
             << "Average inference time cost: " << performance_result_.total_time_cost / performance_result_.time_costs.size() * 1000 << " ms\n"
             // Time between start and end of run. Less than Total time cost when running requests in parallel.
             << "Total inference run time: " << inference_duration.count() << " s\n"
+            << "Number of inferences per second: " << performance_result_.time_costs.size() / inference_duration.count() << " \n"
             << "Avg CPU usage: " << performance_result_.average_CPU_usage << " %\n"
             << "Peak working set size: " << performance_result_.peak_workingset_size << " bytes"
             << std::endl;
@@ -188,7 +189,9 @@ Status PerformanceRunner::RunParallelDuration() {
       count++;
       counter++;
       tpool->Schedule([this, &counter, &m, &cv]() {
-        session_->ThreadSafeRun();
+        auto status = RunOneIteration<false>();
+        if (!status.IsOK())
+          std::cerr << status.ErrorMessage();
         // Simplified version of Eigen::Barrier
         std::lock_guard<OrtMutex> lg(m);
         counter--;
@@ -306,7 +309,9 @@ bool PerformanceRunner::Initialize() {
   test_case_ = CreateOnnxTestCase(narrow_model_name, std::move(test_model_info_), 0.0, 0.0);
 
   if (performance_test_config_.run_config.generate_model_input_binding) {
-    return static_cast<OnnxRuntimeTestSession*>(session_.get())->PopulateGeneratedInputTestData();
+    return static_cast<OnnxRuntimeTestSession*>(
+               session_.get())
+        ->PopulateGeneratedInputTestData(performance_test_config_.run_config.random_seed_for_input_data);
   }
 
   // TODO: Place input tensor on cpu memory if dnnl provider type to avoid CopyTensor logic in CopyInputAcrossDevices
