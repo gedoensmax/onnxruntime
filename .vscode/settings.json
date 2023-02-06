@@ -39,5 +39,28 @@
     "cpplint.filters": [
         "-build/include_subdir",
         "-runtime/references"
-    ]
+    ],
+    "testMate.cpp.test.executables": "${workspaceFolder}/build/RelWithDebug/**/*{test,Test,TEST}*",
+    // "testMate.cpp.test.executables": "${workspaceFolder}/build/Debug/**/*{test,Test,TEST}*",
+    "cmake.sourceDirectory": "${workspaceFolder}/cmake",
+    "cmake.configureOnOpen": true,
+    "cmake.cmakePath": "/home/administrator/cmake/bin/cmake",
+    "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
+    "cmake.configureSettings" : {
+        "CMAKE_CUDA_COMPILER": "/usr/local/cuda/bin/nvcc",
+        "CUDAToolkit_ROOT": "/usr/local/cuda",
+        "onnxruntime_CUDA_HOME": "/usr/local/cuda",
+        "onnxruntime_TENSORRT_HOME": "/home/administrator/TensorRT-8.6.1.6",
+        "onnxruntime_CUDNN_HOME": "/home/administrator/debug_cudnn-linux-x86_64-9.0.0.59",
+        "onnxruntime_USE_TENSORRT": "ON",
+        "onnxruntime_USE_CUDA": "ON",
+        "onnxruntime_USE_CUDA_NHWC_OPS": "ON",
+        "CMAKE_CUDA_ARCHITECTURES": "native",
+        "onnxruntime_NVCC_THREADS": 1,
+        "onnxruntime_ENABLE_NVTX_PROFILE": "ON",
+        "onnxruntime_USE_TENSORRT_BUILTIN_PARSER": "ON",
+        "CMAKE_CUDA_COMPILER_LAUNCHER": "ccache",
+        "onnxruntime_BUILD_SHARED_LIB": "ON",
+        "onnxruntime_BUILD_UNIT_TESTS": "ON"
+    }
 }
