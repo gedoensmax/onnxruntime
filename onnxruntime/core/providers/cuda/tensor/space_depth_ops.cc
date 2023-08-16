@@ -20,7 +20,7 @@ ONNX_OPERATOR_VERSIONED_KERNEL_EX(
                         {DataTypeImpl::GetTensorType<float>(),
                          DataTypeImpl::GetTensorType<double>(),
                          DataTypeImpl::GetTensorType<MLFloat16>()}),
-    SpaceToDepth);
+    SpaceToDepth<false>);
 
 ONNX_OPERATOR_KERNEL_EX(
     SpaceToDepth,
@@ -32,7 +32,7 @@ ONNX_OPERATOR_KERNEL_EX(
                         {DataTypeImpl::GetTensorType<float>(),
                          DataTypeImpl::GetTensorType<double>(),
                          DataTypeImpl::GetTensorType<MLFloat16>()}),
-    SpaceToDepth);
+    SpaceToDepth<false>);
 
 ONNX_OPERATOR_VERSIONED_KERNEL_EX(
     DepthToSpace,
@@ -45,7 +45,7 @@ ONNX_OPERATOR_VERSIONED_KERNEL_EX(
                         {DataTypeImpl::GetTensorType<float>(),
                          DataTypeImpl::GetTensorType<double>(),
                          DataTypeImpl::GetTensorType<MLFloat16>()}),
-    DepthToSpace);
+    DepthToSpace<false>);
 
 ONNX_OPERATOR_VERSIONED_KERNEL_EX(
     DepthToSpace,
@@ -58,7 +58,7 @@ ONNX_OPERATOR_VERSIONED_KERNEL_EX(
                         {DataTypeImpl::GetTensorType<float>(),
                          DataTypeImpl::GetTensorType<double>(),
                          DataTypeImpl::GetTensorType<MLFloat16>()}),
-    DepthToSpace);
+    DepthToSpace<false>);
 
 ONNX_OPERATOR_KERNEL_EX(
     DepthToSpace,
@@ -70,7 +70,72 @@ ONNX_OPERATOR_KERNEL_EX(
                         {DataTypeImpl::GetTensorType<float>(),
                          DataTypeImpl::GetTensorType<double>(),
                          DataTypeImpl::GetTensorType<MLFloat16>()}),
-    DepthToSpace);
+    DepthToSpace<false>);
+
+// NHWC operators
+
+ONNX_OPERATOR_VERSIONED_KERNEL_EX(
+    SpaceToDepth,
+    kMSInternalNHWCDomain,
+    1,
+    12,
+    kCudaExecutionProvider,
+    (*KernelDefBuilder::Create())
+        .TypeConstraint("T",
+                        {DataTypeImpl::GetTensorType<float>(),
+                         DataTypeImpl::GetTensorType<double>(),
+                         DataTypeImpl::GetTensorType<MLFloat16>()}),
+    SpaceToDepth<true>);
+
+ONNX_OPERATOR_KERNEL_EX(
+    SpaceToDepth,
+    kMSInternalNHWCDomain,
+    13,
+    kCudaExecutionProvider,
+    (*KernelDefBuilder::Create())
+        .TypeConstraint("T",
+                        {DataTypeImpl::GetTensorType<float>(),
+                         DataTypeImpl::GetTensorType<double>(),
+                         DataTypeImpl::GetTensorType<MLFloat16>()}),
+    SpaceToDepth<true>);
+
+ONNX_OPERATOR_VERSIONED_KERNEL_EX(
+    DepthToSpace,
+    kMSInternalNHWCDomain,
+    1,
+    10,
+    kCudaExecutionProvider,
+    (*KernelDefBuilder::Create())
+        .TypeConstraint("T",
+                        {DataTypeImpl::GetTensorType<float>(),
+                         DataTypeImpl::GetTensorType<double>(),
+                         DataTypeImpl::GetTensorType<MLFloat16>()}),
+    DepthToSpace<true>);
+
+ONNX_OPERATOR_VERSIONED_KERNEL_EX(
+    DepthToSpace,
+    kMSInternalNHWCDomain,
+    11,
+    12,
+    kCudaExecutionProvider,
+    (*KernelDefBuilder::Create())
+        .TypeConstraint("T",
+                        {DataTypeImpl::GetTensorType<float>(),
+                         DataTypeImpl::GetTensorType<double>(),
+                         DataTypeImpl::GetTensorType<MLFloat16>()}),
+    DepthToSpace<true>);
+
+ONNX_OPERATOR_KERNEL_EX(
+    DepthToSpace,
+    kMSInternalNHWCDomain,
+    13,
+    kCudaExecutionProvider,
+    (*KernelDefBuilder::Create())
+        .TypeConstraint("T",
+                        {DataTypeImpl::GetTensorType<float>(),
+                         DataTypeImpl::GetTensorType<double>(),
+                         DataTypeImpl::GetTensorType<MLFloat16>()}),
+    DepthToSpace<true>);
 
 static Status SpaceDepthOpCudaImpl(const cudaDeviceProp& prop,
                                    cudaStream_t stream,
@@ -80,13 +145,21 @@ static Status SpaceDepthOpCudaImpl(const cudaDeviceProp& prop,
                                    const int64_t batch_size,
                                    const int64_t in_dim1, const int64_t in_dim2, const int64_t in_dim3,
                                    const int64_t in_dim4, const int64_t in_dim5,
-                                   const TensorShape& virtual_output_shape) {
-  TensorShape virtual_input_shape{batch_size, in_dim1, in_dim2, in_dim3, in_dim4, in_dim5};
-  return Transpose::DoTranspose(prop, stream, cublas_handle, permutation, input, output,
-                                &virtual_input_shape, &virtual_output_shape);
+                                   const TensorShape& virtual_output_shape,
+                                   bool is_nhwc) {
+  if (is_nhwc) {
+    TensorShape virtual_input_shape{batch_size, in_dim2, in_dim3, in_dim4, in_dim5, in_dim1};
+    return Transpose::DoTranspose(prop, stream, cublas_handle, permutation, input, output,
+                                  &virtual_input_shape, &virtual_output_shape);
+  } else {
+    TensorShape virtual_input_shape{batch_size, in_dim1, in_dim2, in_dim3, in_dim4, in_dim5};
+    return Transpose::DoTranspose(prop, stream, cublas_handle, permutation, input, output,
+                                  &virtual_input_shape, &virtual_output_shape);
+  }
 }
 
-Status SpaceToDepth::ComputeInternal(OpKernelContext* context) const {
+template<bool NHWC>
+Status SpaceToDepth<NHWC>::ComputeInternal(OpKernelContext* context) const {
   const auto* tensor_pointer = context->Input<Tensor>(0);
   if (tensor_pointer == nullptr) return Status(common::ONNXRUNTIME, common::FAIL, "input count mismatch");
   const Tensor& input = *tensor_pointer;
@@ -105,25 +178,35 @@ Status SpaceToDepth::ComputeInternal(OpKernelContext* context) const {
                                                         batch,
                                                         input_depth, input_height, input_width,
                                                         output_depth, output_height, output_width,
-                                                        true));
+                                                        true, NHWC));
 
   // We use the "actual" output shape to construct the output tensor
-  Tensor& output = *context->Output(0, {batch, output_depth, output_height, output_width});
-
+  Tensor* output;
   // We will pass in the "virtual" output shape to be used by DoTranspose() in SpaceDepthOpCudaImpl(...)
-  TensorShape virtual_output_shape{batch, blocksize_, blocksize_, input_depth,
-                                   input_height / blocksize_, input_width / blocksize_};
+  TensorShape virtual_output_shape;
+  std::vector<size_t> permutation;
+  if (NHWC) {
+    output = context->Output(0, {batch, output_height, output_width, output_depth});
+    virtual_output_shape = {batch, input_height / blocksize_, input_width / blocksize_,
+                            blocksize_, blocksize_, input_depth};
+    permutation = {0, 4, 3, 5, 1, 2};
+  } else {
+    output = context->Output(0, {batch, output_depth, output_height, output_width});
+    virtual_output_shape = {batch, blocksize_, blocksize_, input_depth,
+                            input_height / blocksize_, input_width / blocksize_};
+    permutation = {0, 3, 5, 1, 2, 4};
+  }
 
-  std::vector<size_t> permutation = {0, 3, 5, 1, 2, 4};
 
-  ORT_RETURN_IF_ERROR(SpaceDepthOpCudaImpl(GetDeviceProp(), Stream(context), GetCublasHandle(context), input, output, permutation, batch,
+  ORT_RETURN_IF_ERROR(SpaceDepthOpCudaImpl(GetDeviceProp(), Stream(context), GetCublasHandle(context), input, *output, permutation, batch,
                                            input_depth, input_height / blocksize_, blocksize_, input_width / blocksize_, blocksize_,
-                                           virtual_output_shape));
+                                           virtual_output_shape, NHWC));
 
   return Status::OK();
 }
 
-Status DepthToSpace::ComputeInternal(OpKernelContext* context) const {
+template<bool NHWC>
+Status DepthToSpace<NHWC>::ComputeInternal(OpKernelContext* context) const {
   const auto* tensor_pointer = context->Input<Tensor>(0);
   if (tensor_pointer == nullptr) return Status(common::ONNXRUNTIME, common::FAIL, "input count mismatch");
   const Tensor& input = *tensor_pointer;
@@ -142,42 +225,65 @@ Status DepthToSpace::ComputeInternal(OpKernelContext* context) const {
                                                         batch,
                                                         input_depth, input_height, input_width,
                                                         output_depth, output_height, output_width,
-                                                        false));
+                                                        false, NHWC));
 
   // We use the "actual" output shape to construct the output tensor
-  Tensor& output = *context->Output(0, {batch, output_depth, output_height, output_width});
-
+  Tensor* output;
   // We will pass in the "virtual" output shape to be used by DoTranspose() in SpaceDepthOpCudaImpl(...)
-  TensorShape virtual_output_shape{batch, input_depth / blocksize_ / blocksize_,
+  TensorShape virtual_output_shape;
+  if (NHWC) {
+    output = context->Output(0, {batch, output_height, output_width, output_depth});
+    virtual_output_shape = {batch, input_height, blocksize_, input_width, blocksize_,
+                            input_depth / blocksize_ / blocksize_};
+  } else {
+    output = context->Output(0, {batch, output_depth, output_height, output_width});
+    virtual_output_shape = {batch, input_depth / blocksize_ / blocksize_,
                                    input_height, blocksize_, input_width, blocksize_};
+  }
 
   std::vector<size_t> permutation;
   permutation.reserve(6);
   permutation.push_back(0);
 
-  if (is_dcr_) {
-    permutation.push_back(3);
-    permutation.push_back(4);
-    permutation.push_back(1);
-    permutation.push_back(5);
-    permutation.push_back(2);
-
+  if (NHWC) {
+    if (is_dcr_) {
+      permutation.push_back(4);
+      permutation.push_back(1);
+      permutation.push_back(5);
+      permutation.push_back(2);
+      permutation.push_back(3);
+    } else {
+      permutation.push_back(4);
+      permutation.push_back(2);
+      permutation.push_back(5);
+      permutation.push_back(3);
+      permutation.push_back(1);
+    }
   } else {
-    permutation.push_back(1);
-    permutation.push_back(4);
-    permutation.push_back(2);
-    permutation.push_back(5);
-    permutation.push_back(3);
+    if (is_dcr_) {
+      permutation.push_back(3);
+      permutation.push_back(4);
+      permutation.push_back(1);
+      permutation.push_back(5);
+      permutation.push_back(2);
+
+    } else {
+      permutation.push_back(1);
+      permutation.push_back(4);
+      permutation.push_back(2);
+      permutation.push_back(5);
+      permutation.push_back(3);
+    }
   }
 
   int64_t dim1 = is_dcr_ ? blocksize_ : input_depth / blocksize_ / blocksize_;
   int64_t dim3 = is_dcr_ ? input_depth / blocksize_ / blocksize_ : blocksize_;
 
-  ORT_RETURN_IF_ERROR(SpaceDepthOpCudaImpl(GetDeviceProp(), Stream(context), GetCublasHandle(context), input, output,
+  ORT_RETURN_IF_ERROR(SpaceDepthOpCudaImpl(GetDeviceProp(), Stream(context), GetCublasHandle(context), input, *output,
                                            permutation,
                                            batch,
                                            dim1, blocksize_, dim3, input_height, input_width,
-                                           virtual_output_shape));
+                                           virtual_output_shape, NHWC));
 
   return Status::OK();
 }
