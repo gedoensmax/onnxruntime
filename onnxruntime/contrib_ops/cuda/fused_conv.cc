@@ -100,6 +100,10 @@ class FusedConv : public onnxruntime::cuda::Conv<T, false> {
   Status MapMode(const std::string& activaton_mode) {
     if (activaton_mode == "Relu") {
       activation_mode_ = cudnnActivationMode_t::CUDNN_ACTIVATION_RELU;
+    } else if (activaton_mode == "Tanh") {
+      activation_mode_ = cudnnActivationMode_t::CUDNN_ACTIVATION_TANH;
+    } else if (activaton_mode == "Sigmoid") {
+      activation_mode_ = cudnnActivationMode_t::CUDNN_ACTIVATION_SIGMOID;
     } else {
       return ORT_MAKE_STATUS(
           StatusCategory::ONNXRUNTIME, StatusCode::INVALID_ARGUMENT,
@@ -119,6 +123,15 @@ ONNX_OPERATOR_TYPED_KERNEL_EX(
     kCudaExecutionProvider,
     (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
     FusedConv<float>);
+
+ONNX_OPERATOR_TYPED_KERNEL_EX(
+    FusedConv,
+    kMSDomain,
+    1,
+    MLFloat16,
+    kCudaExecutionProvider,
+    (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<MLFloat16>()),
+    FusedConv<MLFloat16>);
 
 }  // namespace cuda
 }  // namespace contrib
