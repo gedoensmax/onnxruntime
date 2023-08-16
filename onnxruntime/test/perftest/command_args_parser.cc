@@ -301,6 +301,9 @@ static bool ParseDimensionOverride(std::basic_string<ORTCHAR_T>& dim_identifier,
       case 'q':
         test_config.run_config.do_cuda_copy_in_separate_stream = true;
         break;
+      case 'l':
+        test_config.run_config.prefer_nhwc = true;
+        break;
       case 'z':
         test_config.run_config.set_denormal_as_zero = true;
         break;
