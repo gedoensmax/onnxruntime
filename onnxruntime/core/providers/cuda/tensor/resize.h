@@ -9,14 +9,14 @@
 namespace onnxruntime {
 namespace cuda {
 
-template <typename T>
-class Resize : public Upsample<T> {
+template <typename T, bool NHWC>
+class Resize : public Upsample<T, NHWC> {
  public:
-  Resize(const OpKernelInfo& info) : Upsample<T>(info) {
+  Resize(const OpKernelInfo& info) : Upsample<T, NHWC>(info) {
   }
 
   Status ComputeInternal(OpKernelContext* context) const override {
-    return Upsample<T>::ComputeInternal(context);
+    return Upsample<T, NHWC>::ComputeInternal(context);
   }
 };
 

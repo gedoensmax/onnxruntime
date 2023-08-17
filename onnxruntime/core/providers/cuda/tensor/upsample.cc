@@ -11,10 +11,10 @@ using namespace onnxruntime::common;
 namespace onnxruntime {
 namespace cuda {
 
-#define REGISTER_VERSIONED_TYPED_KERNEL(T, start, end)            \
+#define REGISTER_VERSIONED_TYPED_KERNEL(T, start, end, NHWC, DOMAIN)            \
   ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(                        \
       Upsample,                                                   \
-      kOnnxDomain,                                                \
+      DOMAIN,                                                \
       start,                                                      \
       end,                                                        \
       T,                                                          \
@@ -22,23 +22,35 @@ namespace cuda {
       (*KernelDefBuilder::Create())                               \
           .InputMemoryType(OrtMemTypeCPUInput, 1)                 \
           .TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
-      Upsample<T>)
+      Upsample<T, NHWC>)
 
-REGISTER_VERSIONED_TYPED_KERNEL(float, 7, 8);
-REGISTER_VERSIONED_TYPED_KERNEL(double, 7, 8);
-REGISTER_VERSIONED_TYPED_KERNEL(MLFloat16, 7, 8);
-REGISTER_VERSIONED_TYPED_KERNEL(int32_t, 7, 8);
-REGISTER_VERSIONED_TYPED_KERNEL(uint8_t, 7, 8);
+REGISTER_VERSIONED_TYPED_KERNEL(float, 7, 8, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(double, 7, 8, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(MLFloat16, 7, 8, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(int32_t, 7, 8, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(uint8_t, 7, 8, false, kOnnxDomain);
+
+REGISTER_VERSIONED_TYPED_KERNEL(float, 7, 8, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(double, 7, 8, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(MLFloat16, 7, 8, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(int32_t, 7, 8, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(uint8_t, 7, 8, true, kMSInternalNHWCDomain);
 
 // Upsample was deprecated in opset 10
-REGISTER_VERSIONED_TYPED_KERNEL(float, 9, 9);
-REGISTER_VERSIONED_TYPED_KERNEL(double, 9, 9);
-REGISTER_VERSIONED_TYPED_KERNEL(MLFloat16, 9, 9);
-REGISTER_VERSIONED_TYPED_KERNEL(int32_t, 9, 9);
-REGISTER_VERSIONED_TYPED_KERNEL(uint8_t, 9, 9);
+REGISTER_VERSIONED_TYPED_KERNEL(float, 9, 9, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(double, 9, 9, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(MLFloat16, 9, 9, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(int32_t, 9, 9, false, kOnnxDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(uint8_t, 9, 9, false, kOnnxDomain);
 
-template <typename T>
-Status Upsample<T>::BaseCompute(OpKernelContext* context,
+REGISTER_VERSIONED_TYPED_KERNEL(float, 9, 9, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(double, 9, 9, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(MLFloat16, 9, 9, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(int32_t, 9, 9, true, kMSInternalNHWCDomain);
+REGISTER_VERSIONED_TYPED_KERNEL(uint8_t, 9, 9, true, kMSInternalNHWCDomain);
+
+template <typename T, bool NHWC>
+Status Upsample<T, NHWC>::BaseCompute(OpKernelContext* context,
                                 const std::vector<float>& roi,
                                 const std::vector<float>& scales,
                                 const gsl::span<const int64_t>& output_dims) const {
@@ -117,8 +129,8 @@ Status Upsample<T>::BaseCompute(OpKernelContext* context,
   return Status::OK();
 }
 
-template <typename T>
-Status Upsample<T>::ComputeInternal(OpKernelContext* context) const {
+template <typename T, bool NHWC>
+Status Upsample<T, NHWC>::ComputeInternal(OpKernelContext* context) const {
   const Tensor* X = context->Input<Tensor>(0);
   ORT_ENFORCE(X != nullptr);
   auto input_dims = X->Shape().GetDims();
