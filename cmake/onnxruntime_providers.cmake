@@ -510,8 +510,25 @@ if (onnxruntime_USE_CUDA)
       endif()
     endif()
 
+  set(CUDNN_FRONTEND_BUILD_SAMPLES OFF)
+  FetchContent_Declare(
+      cudnn_frontend
+      GIT_REPOSITORY https://github.com/gedoensmax/cudnn-frontend
+      GIT_TAG main
+      )
+  FetchContent_MakeAvailable(cudnn_frontend)
+
+  # onnxruntime_fetchcontent_makeavailable(cudnn_frontend)
+
+  add_dependencies(onnxruntime_providers_cuda onnxruntime_providers_shared ${onnxruntime_EXTERNAL_DEPENDENCIES})
+  target_link_libraries(onnxruntime_providers_cuda PRIVATE cublasLt cublas cudnn cudnn_frontend curand cufft ${ABSEIL_LIBS} ${ONNXRUNTIME_PROVIDERS_SHARED} Boost::mp11 safeint_interface)
+  if(onnxruntime_CUDNN_HOME)
+    target_include_directories(onnxruntime_providers_cuda PRIVATE ${onnxruntime_CUDNN_HOME}/include)
+    target_link_directories(onnxruntime_providers_cuda PRIVATE ${onnxruntime_CUDNN_HOME}/lib)
+  endif()
+
     add_dependencies(${target} onnxruntime_providers_shared ${onnxruntime_EXTERNAL_DEPENDENCIES})
-    target_link_libraries(${target} PRIVATE cublasLt cublas cudnn curand cufft ${ABSEIL_LIBS} ${ONNXRUNTIME_PROVIDERS_SHARED} Boost::mp11 safeint_interface)
+    target_link_libraries(${target} PRIVATE cublasLt cublas cudnn cudnn_frontend curand cufft ${ABSEIL_LIBS} ${ONNXRUNTIME_PROVIDERS_SHARED} Boost::mp11 safeint_interface)
     if(onnxruntime_CUDNN_HOME)
       target_include_directories(${target} PRIVATE ${onnxruntime_CUDNN_HOME}/include)
       target_link_directories(${target} PRIVATE ${onnxruntime_CUDNN_HOME}/lib)

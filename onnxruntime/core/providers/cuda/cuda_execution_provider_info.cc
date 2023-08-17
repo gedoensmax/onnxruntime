@@ -35,6 +35,7 @@ constexpr const char* kPreferNCHWMode = "prefer_nhwc";
 }  // namespace cuda
 
 const EnumNameMapping<OrtCudnnConvAlgoSearch> ort_cudnn_conv_algo_search_mapping{
+    {OrtCudnnConvAlgoGraph, "GRAPH"},
     {OrtCudnnConvAlgoSearchExhaustive, "EXHAUSTIVE"},
     {OrtCudnnConvAlgoSearchHeuristic, "HEURISTIC"},
     {OrtCudnnConvAlgoSearchDefault, "DEFAULT"},
