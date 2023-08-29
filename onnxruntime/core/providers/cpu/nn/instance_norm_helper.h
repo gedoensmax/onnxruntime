@@ -13,8 +13,12 @@ namespace onnxruntime {
 
 class InstanceNormHelper {
  public:
-  static common::Status ValidateInputs(const Tensor* input, const Tensor* scale, const Tensor* B) {
-    if (input->Shape().NumDimensions() < 3) {
+  static common::Status ValidateInputs(const Tensor* input, const Tensor* scale, const Tensor* B, bool is_nhwc = false) {
+    const auto rank = input->Shape().NumDimensions();
+    auto in_dims = input->Shape().GetDims();
+    auto in_channels = is_nhwc ? in_dims[rank - 1] : in_dims[1];
+
+    if (rank < 3) {
       std::ostringstream ostr;
       ostr << "Invalid input data: number of dimensions is less than 3: " << input->Shape().NumDimensions();
       return common::Status(common::ONNXRUNTIME, common::INVALID_ARGUMENT, ostr.str());

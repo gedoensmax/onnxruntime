@@ -52,7 +52,7 @@ struct ConvTransposeAttributes : public ConvAttributes {
     const Tensor* Pads = dynamic_padding ? context->Input<Tensor>(2) : nullptr;
     const Tensor* B = has_bias ? (dynamic_padding ? context->Input<Tensor>(3) : context->Input<Tensor>(2)) : nullptr;
 
-    const int rank = X->Shape().NumDimensions();
+    const auto rank = X->Shape().NumDimensions();
     TensorShape input_shape = X->Shape().Slice(is_nhwc ? 1 : 2 , is_nhwc ? rank-1 : rank);
     const int64_t num_input_channels = is_nhwc ? X->Shape()[rank - 1]: X->Shape()[1];
     const int64_t N = X->Shape()[0];
