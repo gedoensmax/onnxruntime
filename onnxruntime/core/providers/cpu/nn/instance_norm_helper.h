@@ -15,7 +15,7 @@ namespace onnxruntime {
 class InstanceNormHelper {
  public:
   static common::Status ValidateInputs(const Tensor* input, const Tensor* scale, const Tensor* B, bool is_nhwc = false) {
-    const int rank = input->Shape().NumDimensions();
+    const auto rank = input->Shape().NumDimensions();
     auto in_dims = input->Shape().GetDims();
     auto in_channels = is_nhwc ? in_dims[rank - 1] : in_dims[1];
 

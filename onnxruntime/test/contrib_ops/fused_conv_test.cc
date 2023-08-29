@@ -35,7 +35,7 @@ void TestConvOp(const ConvOpAndTestAttributes& attributes,
                 bool disable_rocm = false,
                 bool use_float16 = false,
                 bool weight_is_initializer = false) {
-  bool enable_cuda = HasCudaEnvironment(0) && !use_float16 && !disable_cuda;
+  bool enable_cuda = HasCudaEnvironment(0) && !disable_cuda;
   // Only ROCm EP supports float16.
   bool enable_rocm = (nullptr != DefaultRocmExecutionProvider().get()) && !disable_rocm;
   bool enable_cpu = (nullptr != DefaultCpuExecutionProvider().get()) && !use_float16 && !disable_cpu;
