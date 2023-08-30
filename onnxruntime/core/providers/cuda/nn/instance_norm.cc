@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) 2023 NVIDIA Corporation.
 // Licensed under the MIT License.
 
+#include <cudnn_frontend.h>
 #include "instance_norm.h"
 #include "instance_norm_impl.h"
 #include "core/providers/cpu/nn/instance_norm_helper.h"
@@ -10,31 +12,37 @@
 namespace onnxruntime {
 namespace cuda {
 
-#define REGISTER_KERNEL_TYPED(T)                                  \
+namespace fe = cudnn_frontend;
+
+#define REGISTER_KERNEL_TYPED(T, DOMAIN, NHWC)                    \
   ONNX_OPERATOR_TYPED_KERNEL_EX(                                  \
       InstanceNormalization,                                      \
-      kOnnxDomain,                                                \
+      DOMAIN,                                                     \
       6,                                                          \
       T,                                                          \
       kCudaExecutionProvider,                                     \
       (*KernelDefBuilder::Create())                               \
           .TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
-      InstanceNorm<T>);
+      InstanceNorm<T, NHWC>);
 
-REGISTER_KERNEL_TYPED(float)
-REGISTER_KERNEL_TYPED(double)
-REGISTER_KERNEL_TYPED(MLFloat16)
+REGISTER_KERNEL_TYPED(float, kOnnxDomain, false)
+REGISTER_KERNEL_TYPED(double, kOnnxDomain, false)
+REGISTER_KERNEL_TYPED(MLFloat16, kOnnxDomain, false)
 
-template <typename T>
-InstanceNorm<T>::InstanceNorm(const OpKernelInfo& op_kernel_info)
+REGISTER_KERNEL_TYPED(float, kMSInternalNHWCDomain, true)
+REGISTER_KERNEL_TYPED(MLFloat16, kMSInternalNHWCDomain, true)
+
+template <typename T, bool NHWC>
+InstanceNorm<T, NHWC>::InstanceNorm(const OpKernelInfo& op_kernel_info)
     : CudaKernel(op_kernel_info) {
   float tmp_epsilon;
   ORT_ENFORCE(op_kernel_info.GetAttr<float>("epsilon", &tmp_epsilon).IsOK());
   epsilon_ = ClampCudnnBatchNormEpsilon(tmp_epsilon);
 }
 
-template <typename T>
-Status InstanceNorm<T>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
+template <typename T, bool NHWC>
+Status InstanceNorm<T, NHWC>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
+  static_assert(!NHWC, "This function is not implemented for NHWC");
   typedef typename ToCudaType<T>::MappedType CudaT;
 
   const Tensor* X = p_op_kernel_context->Input<Tensor>(0);
@@ -162,7 +170,7 @@ Status InstanceNorm<T>::ComputeInternal(OpKernelContext* p_op_kernel_context) co
 }
 
 template <>
-Status InstanceNorm<MLFloat16>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
+Status InstanceNorm<MLFloat16, false>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
   typedef typename ToCudaType<MLFloat16>::MappedType CudaT;
 
   const Tensor* X = p_op_kernel_context->Input<Tensor>(0);
@@ -305,6 +313,97 @@ Status InstanceNorm<MLFloat16>::ComputeInternal(OpKernelContext* p_op_kernel_con
 
   return Status::OK();
 }
+
+template <>
+Status InstanceNorm<MLFloat16, true>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
+  // using T = float;
+  // typedef typename ToCudaType<T>::MappedType CudaT;
+
+  const Tensor* X = p_op_kernel_context->Input<Tensor>(0);
+  const Tensor* scale = p_op_kernel_context->Input<Tensor>(1);
+  const Tensor* bias = p_op_kernel_context->Input<Tensor>(2);
+
+  ORT_RETURN_IF_ERROR(InstanceNormHelper::ValidateInputs(X, scale, bias, NHWC));
+
+  return Status::OK();
+}
+
+template <>
+Status InstanceNorm<float, true>::ComputeInternal(OpKernelContext* p_op_kernel_context) const {
+  // using T = float;
+  // typedef typename ToCudaType<T>::MappedType CudaT;
+
+  const Tensor* X = p_op_kernel_context->Input<Tensor>(0);
+  const Tensor* scale = p_op_kernel_context->Input<Tensor>(1);
+  const Tensor* bias = p_op_kernel_context->Input<Tensor>(2);
+
+  ORT_RETURN_IF_ERROR(InstanceNormHelper::ValidateInputs(X, scale, bias, NHWC));
+
+//   const TensorShape& x_shape = X->Shape();
+//   Tensor* Y = p_op_kernel_context->Output(0, x_shape);
+
+//   auto* y_data = reinterpret_cast<CudaT*>(Y->MutableData<T>());
+//   const auto* x_data = reinterpret_cast<const CudaT*>(X->Data<T>());
+//   const auto* scale_data = reinterpret_cast<const CudaT*>(scale->Data<T>());
+//   const auto* bias_data = reinterpret_cast<const CudaT*>(bias->Data<T>());
+
+//   const auto& x_dims = x_shape.GetDims();
+//   const auto rank = x_dims.size();
+//   const int64_t N = x_dims[0];
+//   const int64_t C = NHWC ? x_dims[rank - 1] : x_dims[1];
+//   const auto one = Consts<CudaT>::One;
+//   const auto zero = Consts<CudaT>::Zero;
+
+//   fe::graph::Graph graph;
+//   graph.set_io_data_type(fe::DataType_t::FLOAT)
+//       .set_intermediate_data_type(fe::DataType_t::FLOAT)
+//       .set_compute_data_type(fe::DataType_t::FLOAT);
+
+//   fe::graph::BN_finalize_attributes::Inputs inputs;
+//   auto sum =
+//       graph.tensor(fe::graph::Tensor_attributes().set_name("sum").set_dim({1, 32, 1, 1}).set_stride({32, 1, 32, 32}));
+//   auto sq_sum            = graph.tensor(fe::graph::Tensor_attributes().set_name("sq_sum"));
+//   auto prev_running_mean = graph.tensor(fe::graph::Tensor_attributes().set_name("prev_running_mean"));
+//   auto prev_running_var  = graph.tensor(fe::graph::Tensor_attributes().set_name("prev_running_var"));
+//   auto scale             = graph.tensor(fe::graph::Tensor_attributes().set_name("scale"));
+//   auto bias              = graph.tensor(fe::graph::Tensor_attributes().set_name("bias"));
+//   auto epsilon     = graph.tensor(fe::graph::Tensor_attributes().set_name("epsilon").set_is_pass_by_value(true));
+//   auto momentum    = graph.tensor(fe::graph::Tensor_attributes().set_name("momentum").set_is_pass_by_value(true));
+//   auto accum_count = graph.tensor(fe::graph::Tensor_attributes()
+//                                       .set_name("accum_count")
+//                                       .set_is_pass_by_value(true)
+//                                       .set_data_type(fe::DataType_t::INT64));
+
+//   auto bn_finalize_options =
+//       fe::graph::BN_finalize_attributes().set_previous_running_stats(prev_running_mean, prev_running_var, momentum);
+//   auto [eq_scale, eq_bias, saved_mean, saved_inv_variance, next_running_mean, next_running_var] =
+//       graph.bn_finalize(sum, sq_sum, scale, bias, epsilon, accum_count, bn_finalize_options);
+//   eq_scale->set_output(true);
+//   eq_bias->set_output(true);
+//   saved_mean->set_output(true);
+//   saved_inv_variance->set_output(true);
+//   next_running_mean->set_output(true);
+//   next_running_var->set_output(true);
+
+// #if (CUDNN_VERSION < 8400)
+//   SKIP("BNFinalize requires cudnn 8.4 and up");
+// #endif
+
+//   cudnnHandle_t handle;
+//   checkCudnnErr(cudnnCreate(&handle));
+
+//   REQUIRE(graph.validate().is_good());
+
+//   REQUIRE(graph.build_operation_graph(handle).is_good());
+
+//   auto plans = graph.get_execution_plan_list(fe::HeurMode_t::HEUR_MODE_FALLBACK);
+
+//   REQUIRE(plans.check_support(handle).is_good());
+
+//   REQUIRE(graph.set_execution_plans(plans).is_good());
+  return Status::OK();
+}
+
 
 }  // namespace cuda
 }  // namespace onnxruntime

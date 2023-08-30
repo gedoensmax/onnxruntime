@@ -39,6 +39,31 @@ struct BatchNormOp {
   }
 };
 
+template <typename T>
+struct InstanceNormOp {
+  const std::vector<int64_t> input_dims;
+
+  std::unique_ptr<CompareOpTester> get_test() {
+    // create rand inputs
+    RandomValueGenerator random{};
+
+    auto test = std::make_unique<CompareOpTester>("InstanceNormalization", 14);
+    std::vector<T> input_data = random.Uniform<T>(input_dims, -0.3f, 0.3f);
+    auto channels = input_dims[1];
+    test->AddInput<T>("X", input_dims, input_data);
+
+    std::vector<int64_t> bias_dims{channels};
+    std::vector<T> bias_data = random.Uniform<T>(bias_dims, 0.2f, 1.0f);
+    test->AddInput<T>("B", bias_dims, bias_data);
+    // we simply gonna reuse the bias data here.
+    test->AddInput<T>("scale", bias_dims, bias_data);
+
+    std::vector<T> output_data = FillZeros<T>(input_dims);
+    test->AddOutput<T>("Y", input_dims, output_data);
+    return test;
+  }
+};
+
 TYPED_TEST(CudaNhwcTypedTest, BatchNormNhwc) {
   auto op = BatchNormOp<TypeParam>{
       .input_dims = {4, 16, 64, 64},
@@ -47,5 +72,24 @@ TYPED_TEST(CudaNhwcTypedTest, BatchNormNhwc) {
   MAKE_PROVIDERS()
 }
 
+TYPED_TEST(CudaNhwcTypedTest, InstanceNormNhwc) {
+  {
+    SCOPED_TRACE("N=4");
+    auto op = InstanceNormOp<TypeParam>{
+        .input_dims = {4, 8, 16, 16},
+    };
+
+    MAKE_PROVIDERS()
+  }
+  {
+    SCOPED_TRACE("N=1");
+    // instance norm has a special case for N==1
+    auto op = InstanceNormOp<TypeParam>{
+        .input_dims = {1, 8, 16, 16},
+    };
+
+    MAKE_PROVIDERS()
+  }
+}
 }  // namespace test
 }  // namespace onnxruntime

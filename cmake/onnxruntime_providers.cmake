@@ -510,8 +510,18 @@ if (onnxruntime_USE_CUDA)
       endif()
     endif()
 
+    set(CUDNN_FRONTEND_BUILD_SAMPLES OFF)
+    set(CUDNN_FRONTEND_BUILD_UNIT_TESTS OFF)
+    set(CUDNN_FRONTEND_BUILD_PYTHON_BINDINGS OFF)
+    FetchContent_Declare(
+        cudnn_frontend
+        GIT_REPOSITORY https://github.com/NVIDIA/cudnn-frontend
+        GIT_TAG 1.0/pre_release_1
+        )
+    FetchContent_MakeAvailable(cudnn_frontend)
+
     add_dependencies(${target} onnxruntime_providers_shared ${onnxruntime_EXTERNAL_DEPENDENCIES})
-    target_link_libraries(${target} PRIVATE cublasLt cublas cudnn curand cufft ${ABSEIL_LIBS} ${ONNXRUNTIME_PROVIDERS_SHARED} Boost::mp11 safeint_interface)
+    target_link_libraries(${target} PRIVATE cublasLt cublas cudnn curand cufft cudnn_frontend ${ABSEIL_LIBS} ${ONNXRUNTIME_PROVIDERS_SHARED} Boost::mp11 safeint_interface)
     if(onnxruntime_CUDNN_HOME)
       target_include_directories(${target} PRIVATE ${onnxruntime_CUDNN_HOME}/include)
       target_link_directories(${target} PRIVATE ${onnxruntime_CUDNN_HOME}/lib)
