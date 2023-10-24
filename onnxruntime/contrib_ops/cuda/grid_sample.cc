@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include <algorithm>
 #include "grid_sample.h"
 #include "grid_sample_impl.h"
 
@@ -9,22 +10,23 @@ namespace onnxruntime {
 namespace contrib {
 namespace cuda {
 
-#define REGISTER_KERNEL_TYPED(T)                                   \
+#define REGISTER_KERNEL_TYPED(T, NHWC, DOMAIN)                     \
   ONNX_OPERATOR_TYPED_KERNEL_EX(                                   \
       GridSample,                                                  \
-      kMSDomain,                                                   \
+      DOMAIN,                                                      \
       1,                                                           \
       T,                                                           \
       kCudaExecutionProvider,                                      \
       (*KernelDefBuilder::Create())                                \
           .TypeConstraint("T1", DataTypeImpl::GetTensorType<T>())  \
           .TypeConstraint("T2", DataTypeImpl::GetTensorType<T>()), \
-      GridSample<T>);
+      GridSample<T, NHWC>);
 
-REGISTER_KERNEL_TYPED(float)
+REGISTER_KERNEL_TYPED(float, false, kMSDomain)
+REGISTER_KERNEL_TYPED(float, true, kMSInternalNHWCDomain)
 
-template <typename T>
-GridSample<T>::GridSample(const OpKernelInfo& info) : CudaKernel(info) {
+template <typename T, bool NHWC>
+GridSample<T, NHWC>::GridSample(const OpKernelInfo& info) : CudaKernel(info) {
   std::string mode_str = info.GetAttrOrDefault<std::string>("mode", "bilinear");
   std::string padding_mode_str = info.GetAttrOrDefault<std::string>("padding_mode", "zeros");
   align_corners_ = static_cast<bool>(info.GetAttrOrDefault<int64_t>("align_corners", 0));
@@ -32,6 +34,8 @@ GridSample<T>::GridSample(const OpKernelInfo& info) : CudaKernel(info) {
               "mode \"", mode_str, "\" not supported, expect bilinear, nearest or bicubic");
   ORT_ENFORCE(padding_mode_str == "zeros" || padding_mode_str == "border" || padding_mode_str == "reflection",
               "padding_mode \"", padding_mode_str, "\" not supported, expect zeros, border or reflection");
+  // TODO: we could also use cudnn's resample op
+
   if (mode_str == "bicubic") {
     mode_i_ = 2;
   } else if (mode_str == "nearest") {
@@ -48,8 +52,8 @@ GridSample<T>::GridSample(const OpKernelInfo& info) : CudaKernel(info) {
   }
 }
 
-template <typename T>
-Status GridSample<T>::ComputeInternal(OpKernelContext* context) const {
+template <typename T, bool NHWC>
+Status GridSample<T, NHWC>::ComputeInternal(OpKernelContext* context) const {
   const Tensor* X = context->Input<Tensor>(0);
   const auto& dims_input = X->Shape().GetDims();
   const Tensor* Grid = context->Input<Tensor>(1);
@@ -62,10 +66,26 @@ Status GridSample<T>::ComputeInternal(OpKernelContext* context) const {
   ORT_ENFORCE(dims_grid[3] == 2, "Last dimension of grid: ", dims_grid[3], ", expect 2");
 
   TensorShapeVector dims_output(4);
+
   dims_output[0] = dims_input[0];
-  dims_output[1] = dims_input[1];
-  dims_output[2] = dims_grid[1];
-  dims_output[3] = dims_grid[2];
+  int64_t in_dims[4];
+  if (NHWC) {
+    dims_output[1] = dims_grid[1];
+    dims_output[2] = dims_grid[2];
+    dims_output[3] = dims_input[1];
+    in_dims[0] = dims_input[0];
+    in_dims[1] = dims_input[2];
+    in_dims[2] = dims_input[3];
+    in_dims[3] = dims_input[1];
+  } else {
+    dims_output[1] = dims_input[1];
+    dims_output[2] = dims_grid[1];
+    dims_output[3] = dims_grid[2];
+    in_dims[0] = dims_input[0];
+    in_dims[1] = dims_input[1];
+    in_dims[2] = dims_input[2];
+    in_dims[3] = dims_input[3];
+  }
   Tensor* Y = context->Output(0, dims_output);
   // Return early if the output tensor is going to be of size 0
   if (Y->Shape().Size() == 0) {
@@ -81,7 +101,7 @@ Status GridSample<T>::ComputeInternal(OpKernelContext* context) const {
       mode_i_,
       padding_mode_i_,
       align_corners_,
-      dims_input.data(),
+      in_dims,
       dims_grid[1],
       dims_grid[2],
       Y_data);
