@@ -18,7 +18,7 @@ class SpaceDepthBase {
                                            int64_t& batch,
                                            int64_t& input_depth, int64_t& input_height, int64_t& input_width,
                                            int64_t& output_depth, int64_t& output_height, int64_t& output_width,
-                                           bool is_space_to_depth) const {
+                                           bool is_space_to_depth, bool is_nhwc = false) const {
     const TensorShape& input_shape = input.Shape();
 
     if (input_shape.NumDimensions() != 4) {
@@ -27,9 +27,9 @@ class SpaceDepthBase {
     }
 
     batch = input_shape[0];
-    input_depth = input_shape[1];
-    input_height = input_shape[2];
-    input_width = input_shape[3];
+    input_depth = input_shape[is_nhwc ? 3 : 1];
+    input_height = input_shape[is_nhwc ? 1 : 2];
+    input_width = input_shape[is_nhwc ? 2 : 3];
 
     if (is_space_to_depth) {  // SpaceToDepth op
       if ((input_height % this->blocksize_) != 0) {
