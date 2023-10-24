@@ -10,7 +10,7 @@
 namespace onnxruntime {
 namespace cuda {
 
-template <typename T>
+template <typename T, bool NHWC>
 class Upsample : public UpsampleBase, public CudaKernel {
  public:
   Upsample(const OpKernelInfo& info) : UpsampleBase(info), CudaKernel(info) {
