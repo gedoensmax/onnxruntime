@@ -6,37 +6,45 @@
 namespace onnxruntime {
 namespace cuda {
 
-#define REGISTER_KERNEL_VERSIONED_TYPED(START_VER, END_VER, T)                             \
+#define REGISTER_KERNEL_VERSIONED_TYPED(START_VER, END_VER, T, NHWC, DOMAIN)               \
   ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(                                                 \
       LRN,                                                                                 \
-      kOnnxDomain,                                                                         \
+      DOMAIN,                                                                              \
       START_VER,                                                                           \
       END_VER,                                                                             \
       T,                                                                                   \
       kCudaExecutionProvider,                                                              \
       (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
-      LRN<T>);
+      LRN<T, NHWC>);
 
-#define REGISTER_KERNEL_TYPED(VER, T)                                                      \
+#define REGISTER_KERNEL_TYPED(VER, T, NHWC, DOMAIN)                                        \
   ONNX_OPERATOR_TYPED_KERNEL_EX(                                                           \
       LRN,                                                                                 \
-      kOnnxDomain,                                                                         \
+      DOMAIN,                                                                              \
       VER,                                                                                 \
       T,                                                                                   \
       kCudaExecutionProvider,                                                              \
       (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
-      LRN<T>);
+      LRN<T, NHWC>);
 
-REGISTER_KERNEL_VERSIONED_TYPED(1, 12, float)
-REGISTER_KERNEL_VERSIONED_TYPED(1, 12, double)
-REGISTER_KERNEL_VERSIONED_TYPED(1, 12, MLFloat16)
+REGISTER_KERNEL_VERSIONED_TYPED(1, 12, float, false, kOnnxDomain)
+REGISTER_KERNEL_VERSIONED_TYPED(1, 12, double, false, kOnnxDomain)
+REGISTER_KERNEL_VERSIONED_TYPED(1, 12, MLFloat16, false, kOnnxDomain)
 
-REGISTER_KERNEL_TYPED(13, float)
-REGISTER_KERNEL_TYPED(13, double)
-REGISTER_KERNEL_TYPED(13, MLFloat16)
+REGISTER_KERNEL_TYPED(13, float, false, kOnnxDomain)
+REGISTER_KERNEL_TYPED(13, double, false, kOnnxDomain)
+REGISTER_KERNEL_TYPED(13, MLFloat16, false, kOnnxDomain)
 
-template <typename T>
-LRN<T>::LRN(const OpKernelInfo& info) : CudaKernel(info) {
+REGISTER_KERNEL_VERSIONED_TYPED(1, 12, float, true, kMSInternalNHWCDomain)
+REGISTER_KERNEL_VERSIONED_TYPED(1, 12, double, true, kMSInternalNHWCDomain)
+REGISTER_KERNEL_VERSIONED_TYPED(1, 12, MLFloat16, true, kMSInternalNHWCDomain)
+
+REGISTER_KERNEL_TYPED(13, float, true, kMSInternalNHWCDomain)
+REGISTER_KERNEL_TYPED(13, double, true, kMSInternalNHWCDomain)
+REGISTER_KERNEL_TYPED(13, MLFloat16, true, kMSInternalNHWCDomain)
+
+template <typename T, bool NHWC>
+LRN<T, NHWC>::LRN(const OpKernelInfo& info) : CudaKernel(info) {
   int64_t size;
   ORT_ENFORCE(info.GetAttr<int64_t>("size", &size).IsOK());
   ORT_ENFORCE(size > 0);
@@ -58,8 +66,8 @@ LRN<T>::LRN(const OpKernelInfo& info) : CudaKernel(info) {
                   .IsOK());
 }
 
-template <typename T>
-Status LRN<T>::ComputeInternal(OpKernelContext* context) const {
+template <typename T, bool NHWC>
+Status LRN<T, NHWC>::ComputeInternal(OpKernelContext* context) const {
   typedef typename ToCudaType<T>::MappedType CudaT;
 
   const Tensor* X = context->Input<Tensor>(0);
@@ -71,7 +79,7 @@ Status LRN<T>::ComputeInternal(OpKernelContext* context) const {
   Tensor* Y = context->Output(0, X->Shape());
 
   CudnnTensor x_tensor;
-  ORT_RETURN_IF_ERROR(x_tensor.Set(X->Shape().GetDims(), CudnnTensor::GetDataType<CudaT>()));
+  ORT_RETURN_IF_ERROR(x_tensor.Set(X->Shape().GetDims(), CudnnTensor::GetDataType<CudaT>(), NHWC));
 
   const auto one = Consts<CudaT>::One;
   const auto zero = Consts<CudaT>::Zero;
