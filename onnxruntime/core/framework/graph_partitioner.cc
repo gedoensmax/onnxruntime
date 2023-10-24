@@ -142,7 +142,7 @@ static Status GetCapabilityForEP(const GetCapabilityForEPParams& params) {
     return Status::OK();
   }
 #endif  // !defined(ORT_MINIMAL_BUILD) || defined(ORT_EXTENDED_MINIMAL_BUILD)
-
+  // TODO check this out here we can query if compile is available
   auto get_capabilities = [](const IExecutionProvider& ep,
                              const GraphViewer& graph_viewer,
                              const IExecutionProvider::IKernelLookup& kernel_lookup) {

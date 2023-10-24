@@ -44,6 +44,58 @@ bool HasElementDataType(const NodeArg& node_arg, int32_t data_type) {
   return data_type == actual_data_type;
 }
 
+bool HasElementDataTypeAndAlignment(const NodeArg& node_arg, int32_t data_type, int64_t alignment) {
+  if (!HasElementDataType(node_arg, data_type)) {
+    return false;
+  }
+
+  const auto shape = node_arg.Shape();
+  if (shape) {
+    const int64_t in_channels = shape->dim(1).dim_value();
+    if (in_channels % alignment) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
+bool CudnnConvFusionDataTypeCheck(const Node& node) {
+  // Supported dtypes: https://docs.nvidia.com/deeplearning/cudnn/developer-guide/index.html#conv-runtime-fusion-engine
+  // ideally we can check here for alignment as well but for that we would need the current compute capability
+  //
+  struct cudnnAlignmentChannels {
+    // int fp8 = 16; // hopper only e.g. cc90
+    int64_t int8 = 4;
+    int64_t fp16 = 2;
+    int64_t fp32 = 1;
+  };
+  cudnnAlignmentChannels align;
+
+  // #include "core/providers/cuda/shared_inc/cuda_call.h"
+  // cudaDeviceProp prop;
+  // CUDA_CALL_THROW(cudaGetDeviceProperties(&prop, device_id_));
+  // // turing and volta
+  // if (prop.major * 10 + prop.minor < 80)
+  // {
+  //     align.int8 = 16;
+  //     align.fp16 = 8;
+  //     align.fp32 = 4;
+  // }
+
+  if (!(HasElementDataTypeAndAlignment(*node.InputDefs()[0], ONNX_NAMESPACE::TensorProto_DataType_FLOAT, align.fp32) ||
+        HasElementDataTypeAndAlignment(*node.InputDefs()[0], ONNX_NAMESPACE::TensorProto_DataType_BFLOAT16, align.fp16) ||
+        HasElementDataTypeAndAlignment(*node.InputDefs()[0], ONNX_NAMESPACE::TensorProto_DataType_FLOAT16, align.fp16) ||
+        // TODO unsure about fp8 support in ONNX
+        // HasElementDataType(*node.InputDefs()[0], ONNX_NAMESPACE::TensorProto_DataType_FLOAT8) ||
+        HasElementDataTypeAndAlignment(*node.InputDefs()[0], ONNX_NAMESPACE::TensorProto_DataType_INT8, align.int8))) {
+    return false;
+  }
+  return true;
+}
+
 bool ConvFusionDataTypeCheck(const Node& conv_node) {
   // TODO(hasesh): The CPU and CUDA EP only support float type for the Conv+Activation
   // and the Conv+Add+Relu fusions.
@@ -69,6 +121,43 @@ bool ConvFusionDataTypeCheck(const Node& conv_node) {
   }
 
   return true;
+}
+
+static bool IsPWMathNode(const Node* node) {
+  if (!node) {
+    return false;
+  }
+  if (node->GetOutputEdgesCount() > 1) {
+    return false;
+  }
+
+  return graph_utils::IsSupportedOptypeVersionAndDomain(*node, "Add", {6, 7, 13, 14}) ||
+         graph_utils::IsSupportedOptypeVersionAndDomain(*node, "Mul", {12, 13, 14});
+}
+
+static bool IsActivationNode(const Node* node) {
+  if (!node) {
+    return false;
+  }
+  if (node->GetOutputEdgesCount() > 1) {
+    return false;
+  }
+
+  return graph_utils::IsSupportedOptypeVersionAndDomain(*node, "Relu", {6, 13, 14}) ||
+         graph_utils::IsSupportedOptypeVersionAndDomain(*node, "Sigmoid", {6, 13}) ||
+        //  graph_utils::IsSupportedOptypeVersionAndDomain(*node, "LeakyRelu", {6, 16}) ||
+         graph_utils::IsSupportedOptypeVersionAndDomain(*node, "Tanh", {6, 13});
+}
+
+bool IsPointwiseNode(const Node* node) {
+  if (!node) {
+    return false;
+  }
+  if (node->GetOutputEdgesCount() > 1) {
+    return false;
+  }
+
+  return IsActivationNode(node) || IsPWMathNode(node);
 }
 
 class ConvActivationSelector : public NodeSelector {
@@ -107,7 +196,11 @@ class ConvActivationSelector : public NodeSelector {
     }
 
     // check EP type and activation
-    if (node_ep == kCudaExecutionProvider || node_ep == kRocmExecutionProvider) {
+    if (node_ep == kCudaExecutionProvider) {
+      if (!IsActivationNode(next_node)) {
+        return std::nullopt;
+      }
+    } else if (node_ep == kRocmExecutionProvider) {
       if (!graph_utils::IsSupportedOptypeVersionAndDomain(*next_node, "Relu", {6, 13, 14})) {
         return std::nullopt;
       }
@@ -162,6 +255,40 @@ class ConvAddRelu : public NodeSelector {
     builder.target_node = node.Index();
     builder.output_nodes = {add_node->Index(),
                             relu_node->Index()};
+    return builder.Build();
+  }
+};
+
+class ConvPW : public NodeSelector {
+ public:
+  ConvPW() = default;
+
+  std::optional<NodesToOptimizeIndices> Select(const GraphViewer& graph_viewer, const Node& node) const override {
+    const std::string_view node_ep = node.GetExecutionProviderType();
+    // only for CUDA EP
+    if (node_ep != kCudaExecutionProvider) {
+      return std::nullopt;
+    }
+
+    if (!CudnnConvFusionDataTypeCheck(node)) {
+      return std::nullopt;
+    }
+
+    NodesToOptimizeIndicesBuilder builder{};
+    builder.target_node = node.Index();
+    auto* pw_node = GetLoneConsumerNode(graph_viewer, node);
+    // TODO here it would be much nicer to check if the next pointwise node is supported by cudnn frontend
+    while (IsPointwiseNode(pw_node)) {
+      if (pw_node->GetExecutionProviderType() != kCudaExecutionProvider) {
+        break;
+      }
+
+      builder.output_nodes.push_back(pw_node->Index());
+      pw_node = GetLoneConsumerNode(graph_viewer, *pw_node);
+    }
+    if (!builder.output_nodes.size()) {
+      return std::nullopt;
+    }
     return builder.Build();
   }
 };
@@ -254,7 +381,90 @@ class FuseConvAddRelu : public ReplaceWithNew {
     };
   }
 };
+
+class FuseConvPointwiseAction : public ReplaceWithNew {
+ private:
+  std::string OpType(const RuntimeState&) const override { return "NhwcFusedConvPW"; }
+
+  std::string Domain(const RuntimeState&) const override { return kMSDomain; }
+
+  NodeAttributes ExtraAttributes(const RuntimeState& state) const override {
+    NodeAttributes extra_fused_conv_attributes;
+    for (int nto_idx = 0; nto_idx < state.selected_nodes.num_outputs; ++nto_idx) {
+      const auto* pw_node = state.selected_nodes.Output(nto_idx);
+      if (selectors::IsActivationNode(pw_node)) {
+        const auto& activation_op_type = pw_node->OpType();
+        utils::SetNodeAttribute(utils::MakeAttribute("activation", activation_op_type), extra_fused_conv_attributes);
+
+        InlinedVector<float> activation_params;
+        if (activation_op_type == "LeakyRelu") {
+          activation_params.push_back(graph_utils::GetNodeAttribute(*pw_node, "alpha")->f());
+        }
+
+        if (!activation_params.empty()) {
+          utils::SetNodeAttribute(utils::MakeAttribute("activation_params", activation_params),
+                                  extra_fused_conv_attributes);
+        }
+      }
+    }
+    return extra_fused_conv_attributes;
+  }
+
+  std::vector<NodeAndMoveInfo> ValueMoves(const RuntimeState& state) const override {
+    const auto& conv = state.selected_nodes.Target();
+    ORT_ENFORCE(conv.GetOutputEdgesCount() == 1, "Expected nodes with single output");
+
+    const auto conv_location = NTO::NodeLocation{NTO::NodeType::kTarget, 0};
+    std::vector<NodeAndMoveInfo> node_move_info = {
+        MoveAll(conv_location, ArgType::kInput),
+        // MoveAndAppend(NTO::NodeLocation{NTO::NodeType::kInput, 2}, ArgType::kInput, 0, ArgType::kInput,
+        //               true, true) // fill optional values
+    };
+    bool add_used = false, mul_used = false;
+    for (int nto_idx = 0; nto_idx < state.selected_nodes.num_outputs; ++nto_idx) {
+      const auto* pw_node = state.selected_nodes.Output(nto_idx);
+      if (nto_idx != (state.selected_nodes.num_outputs - 1)) {
+        ORT_ENFORCE(pw_node->GetOutputEdgesCount() == 1, "Expected nodes with single output");
+        // TODO the check against == 1 fails if it is the last node in the network
+      }
+
+      // TODO find out how to first fill and then move to slot like here ?
+      // https://github.com/gedoensmax/onnxruntime/blob/948ea37ef7ffae91e5c2c008a37aacb386f3c0b1/onnxruntime/core/optimizer/qdq_transformer/selectors_actions/qdq_actions.cc
+      if (graph_utils::IsSupportedOptypeVersionAndDomain(*pw_node, "Add", {6, 7, 13, 14})) {
+        ORT_ENFORCE(!add_used, "Fusing multiple adds is not possible");
+        const auto add_location = NTO::NodeLocation{NTO::NodeType::kOutput, nto_idx};
+        // const auto input_idx = 1 - pw_node->OutputEdgesBegin()->GetDstArgIndex();
+        // node_move_info.push_back(MoveToSlot(add_location, ArgType::kInput, 1, ArgType::kInput, 4));
+        node_move_info.push_back(MoveAndAppend(add_location, ArgType::kInput, 1, ArgType::kInput));
+        add_used = true;
+      } else if (graph_utils::IsSupportedOptypeVersionAndDomain(*pw_node, "Mul", {12, 13, 14})) {
+        ORT_ENFORCE(!mul_used, "Fusing multiple adds is not possible");
+        const auto mul_location = NTO::NodeLocation{NTO::NodeType::kOutput, nto_idx};
+        // const auto input_idx = 1 - pw_node->OutputEdgesBegin()->GetDstArgIndex();
+        // node_move_info.push_back(MoveToSlot(mul_location, ArgType::kInput, 1, ArgType::kInput));
+        node_move_info.push_back(MoveAndAppend(mul_location, ArgType::kInput, 1, ArgType::kInput));
+        mul_used = true;
+      }
+    }
+    const auto out_location = NTO::NodeLocation{NTO::NodeType::kOutput, state.selected_nodes.num_outputs - 1};
+    node_move_info.push_back(MoveAll(out_location, ArgType::kOutput));
+
+    return node_move_info;
+  }
+};
 }  // namespace actions
+
+void RegisterConvPointwiseFusionRules(SelectorActionRegistry& registry) {
+  const auto name = "ConvPW";
+  auto action = std::make_unique<actions::FuseConvPointwiseAction>();
+#if !defined(ORT_MINIMAL_BUILD)
+  auto selector = std::make_unique<selectors::ConvPW>();
+  registry.RegisterSelectorAndAction(name, {{"Conv", {1, 11}}},
+                                     std::move(selector), std::move(action));
+#else
+  registry.RegisterAction(name, std::move(action));
+#endif
+}
 
 void RegisterConvActivationFusionRules(SelectorActionRegistry& registry) {
   const auto name = "ConvAct";
@@ -282,6 +492,7 @@ void RegisterConvAddReluFusionRules(SelectorActionRegistry& registry) {
 
 SelectorActionRegistry CreateSelectorActionRegistry() {
   SelectorActionRegistry registry{};
+  // RegisterConvPointwiseFusionRules(registry);
   RegisterConvActivationFusionRules(registry);
   RegisterConvAddReluFusionRules(registry);
   return registry;

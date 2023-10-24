@@ -36,6 +36,7 @@ constexpr const char* KUseEPLevelUnifiedStream = "use_ep_level_unified_stream";
 }  // namespace cuda
 
 const EnumNameMapping<OrtCudnnConvAlgoSearch> ort_cudnn_conv_algo_search_mapping{
+    {OrtCudnnConvAlgoGraph, "GRAPH"},
     {OrtCudnnConvAlgoSearchExhaustive, "EXHAUSTIVE"},
     {OrtCudnnConvAlgoSearchHeuristic, "HEURISTIC"},
     {OrtCudnnConvAlgoSearchDefault, "DEFAULT"},

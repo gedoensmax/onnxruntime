@@ -193,5 +193,27 @@ class CudaKernel : public OpKernel {
   CUDAExecutionProvider* provider_;
 };
 
+class CudnnFrontendKernel : public CudaKernel
+{
+public:
+  explicit CudnnFrontendKernel(const OpKernelInfo& info)
+      : CudaKernel(info) {}
+//   /// query plans sorted by heuristics
+//   /// this function is considered low overhead and could therefore serve as a check
+//   /// if an op should be fused or create its own cudnn graph
+//   Status QueryPlans();
+
+//   /// profile_top_kernels==0 means we use heuristics as plans are sorted by heuristics
+//   /// in case a compilation fails we will use the next plan
+//   /// costly function !
+//   Status BuildPlan(int profile_top_kernels = 0);
+
+//   /// in case all plans fail we will build a non fused plan with a kernel for each operation
+//   /// costly function !
+//   Status BuildFallbackPlan();
+
+};
+
+
 }  // namespace cuda
 }  // namespace onnxruntime

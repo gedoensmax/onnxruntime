@@ -391,6 +391,7 @@ typedef enum OrtCudnnConvAlgoSearch {
   OrtCudnnConvAlgoSearchExhaustive,  // expensive exhaustive benchmarking using cudnnFindConvolutionForwardAlgorithmEx
   OrtCudnnConvAlgoSearchHeuristic,   // lightweight heuristic based search using cudnnGetConvolutionForwardAlgorithm_v7
   OrtCudnnConvAlgoSearchDefault,     // default algorithm using CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM
+  OrtCudnnConvAlgoGraph,             // uses the dynamic compilation backend that allows for more complex graph fusions
 } OrtCudnnConvAlgoSearch;
 
 /** \brief CUDA Provider Options
