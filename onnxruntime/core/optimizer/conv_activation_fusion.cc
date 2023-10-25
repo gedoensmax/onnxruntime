@@ -454,17 +454,17 @@ class FuseConvPointwiseAction : public ReplaceWithNew {
 };
 }  // namespace actions
 
-void RegisterConvPointwiseFusionRules(SelectorActionRegistry& registry) {
-  const auto name = "ConvPW";
-  auto action = std::make_unique<actions::FuseConvPointwiseAction>();
-#if !defined(ORT_MINIMAL_BUILD)
-  auto selector = std::make_unique<selectors::ConvPW>();
-  registry.RegisterSelectorAndAction(name, {{"Conv", {1, 11}}},
-                                     std::move(selector), std::move(action));
-#else
-  registry.RegisterAction(name, std::move(action));
-#endif
-}
+// void RegisterConvPointwiseFusionRules(SelectorActionRegistry& registry) {
+//   const auto name = "ConvPW";
+//   auto action = std::make_unique<actions::FuseConvPointwiseAction>();
+// #if !defined(ORT_MINIMAL_BUILD)
+//   auto selector = std::make_unique<selectors::ConvPW>();
+//   registry.RegisterSelectorAndAction(name, {{"Conv", {1, 11}}},
+//                                      std::move(selector), std::move(action));
+// #else
+//   registry.RegisterAction(name, std::move(action));
+// #endif
+// }
 
 void RegisterConvActivationFusionRules(SelectorActionRegistry& registry) {
   const auto name = "ConvAct";
