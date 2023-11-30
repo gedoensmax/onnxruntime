@@ -40,18 +40,22 @@
         "-build/include_subdir",
         "-runtime/references"
     ],
-    "testMate.cpp.test.executables": "${workspaceFolder}/build/RelWithDebug/**/*{test,Test,TEST}*",
-    // "testMate.cpp.test.executables": "${workspaceFolder}/build/Debug/**/*{test,Test,TEST}*",
+    // "testMate.cpp.test.executables": "${workspaceFolder}/build/RelWithDebInfo/**/*{test,Test,TEST}*",
+    "testMate.cpp.test.executables": "${workspaceFolder}/build/Debug/**/*{test,Test,TEST}*",
     "cmake.sourceDirectory": "${workspaceFolder}/cmake",
+    "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
     "cmake.configureOnOpen": true,
     "cmake.cmakePath": "/home/administrator/cmake/bin/cmake",
-    "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
-    "cmake.configureSettings" : {
+    "cmake.configureArgs": [
+        "--compile-no-warning-as-error"
+    ],
+    "cmake.configureSettings": {
         "CMAKE_CUDA_COMPILER": "/usr/local/cuda/bin/nvcc",
         "CUDAToolkit_ROOT": "/usr/local/cuda",
         "onnxruntime_CUDA_HOME": "/usr/local/cuda",
         "onnxruntime_TENSORRT_HOME": "/home/administrator/TensorRT-8.6.1.6",
-        "onnxruntime_CUDNN_HOME": "/home/administrator/debug_cudnn-linux-x86_64-9.0.0.59",
+        "onnxruntime_CUDNN_HOME": "/home/administrator/debug_cudnn-linux-x86_64-9.0.0.245",
+        // "onnxruntime_CUDNN_HOME": "/home/administrator/debug_cudnn-linux-x86_64-9.0.0.59",
         "onnxruntime_USE_TENSORRT": "ON",
         "onnxruntime_USE_CUDA": "ON",
         "onnxruntime_USE_CUDA_NHWC_OPS": "ON",
