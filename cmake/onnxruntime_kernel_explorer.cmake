@@ -9,7 +9,7 @@ endif()
 
 set(KERNEL_EXPLORER_ROOT ${ONNXRUNTIME_ROOT}/python/tools/kernel_explorer)
 
-if (onnxruntime_USE_CUDA)
+if (onnxruntime_USE_CUDA OR onnxruntime_USE_TENSORRT)
   check_language(CUDA)
   set(LANGUAGE CUDA)
   set(BERT_DIR ${ONNXRUNTIME_ROOT}/contrib_ops/cuda/bert)
@@ -46,7 +46,7 @@ target_link_libraries(kernel_explorer PRIVATE $<TARGET_PROPERTY:onnxruntime_pybi
 target_compile_definitions(kernel_explorer PRIVATE $<TARGET_PROPERTY:onnxruntime_pybind11_state,COMPILE_DEFINITIONS>)
 target_compile_options(kernel_explorer PRIVATE -Wno-sign-compare)
 
-if (onnxruntime_USE_CUDA)
+if (onnxruntime_USE_CUDA OR onnxruntime_USE_TENSORRT)
   file(GLOB kernel_explorer_cuda_kernel_srcs CONFIGURE_DEPENDS
     "${KERNEL_EXPLORER_ROOT}/kernels/cuda/*.cc"
     "${KERNEL_EXPLORER_ROOT}/kernels/cuda/*.h"

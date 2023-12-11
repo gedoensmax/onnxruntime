@@ -1,10 +1,19 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
+  find_package(CUDAToolkit REQUIRED)
 
-  file(GLOB_RECURSE onnxruntime_providers_cuda_cc_srcs CONFIGURE_DEPENDS
+  file(GLOB onnxruntime_providers_cuda_cc_srcs CONFIGURE_DEPENDS
     "${ONNXRUNTIME_ROOT}/core/providers/cuda/*.h"
     "${ONNXRUNTIME_ROOT}/core/providers/cuda/*.cc"
   )
+
+  file(GLOB_RECURSE onnxruntime_providers_cuda_kernels_cc_srcs CONFIGURE_DEPENDS
+          "${ONNXRUNTIME_ROOT}/core/providers/cuda/*.h"
+          "${ONNXRUNTIME_ROOT}/core/providers/cuda/*.cc"
+  )
+  # Remove duplicate files
+  list(REMOVE_ITEM onnxruntime_providers_cuda_kernels_cc_srcs ${onnxruntime_providers_cuda_cc_srcs})
+
   # Remove pch files
   list(REMOVE_ITEM onnxruntime_providers_cuda_cc_srcs
     "${ONNXRUNTIME_ROOT}/core/providers/cuda/cuda_pch.h"
@@ -22,8 +31,12 @@
   )
 
   source_group(TREE ${ONNXRUNTIME_ROOT}/core FILES ${onnxruntime_providers_cuda_cc_srcs} ${onnxruntime_providers_cuda_shared_srcs} ${onnxruntime_providers_cuda_cu_srcs})
-  set(onnxruntime_providers_cuda_src ${onnxruntime_providers_cuda_cc_srcs} ${onnxruntime_providers_cuda_shared_srcs} ${onnxruntime_providers_cuda_cu_srcs})
-
+  if (${CUDA_MINIMAL})
+    add_compile_definitions(ENABLE_CUDA_MINIMAL)
+    set(onnxruntime_providers_cuda_src ${onnxruntime_providers_cuda_cc_srcs} ${onnxruntime_providers_cuda_shared_srcs} ${onnxruntime_providers_cuda_cu_srcs})
+  else()
+    set(onnxruntime_providers_cuda_src ${onnxruntime_providers_cuda_cc_srcs} ${onnxruntime_providers_cuda_kernels_cc_srcs} ${onnxruntime_providers_cuda_shared_srcs} ${onnxruntime_providers_cuda_cu_srcs})
+  endif()
   # disable contrib ops conditionally
   if(NOT onnxruntime_DISABLE_CONTRIB_OPS)
     if (NOT onnxruntime_ENABLE_ATEN)
