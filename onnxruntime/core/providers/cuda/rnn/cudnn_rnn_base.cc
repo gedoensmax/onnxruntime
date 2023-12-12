@@ -5,6 +5,8 @@
 #include "cudnn_rnn_base.h"
 #include "rnn_impl.h"
 
+#if (CUDNN_MAJOR < 9)
+
 namespace onnxruntime {
 namespace cuda {
 
@@ -417,3 +419,4 @@ template class CudnnRnnBase<MLFloat16>;
 
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif

@@ -4,6 +4,8 @@
 #include "core/providers/cuda/cu_inc/common.cuh"
 #include "rnn_impl.h"
 
+#if (CUDNN_MAJOR < 9)
+
 namespace onnxruntime {
 namespace cuda {
 
@@ -217,3 +219,4 @@ SPECIALIZED_RNN_IMPL(double)
 
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif

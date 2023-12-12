@@ -6,6 +6,7 @@
 #include "rnn_impl.h"
 #include "core/providers/cuda/cudnn_common.h"
 
+#if (CUDNN_MAJOR < 9)
 namespace onnxruntime {
 namespace cuda {
 
@@ -46,3 +47,4 @@ REGISTER_KERNEL_TYPED(MLFloat16);
 
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif

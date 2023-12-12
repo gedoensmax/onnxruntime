@@ -110,6 +110,7 @@
     if (onnxruntime_REDUCED_OPS_BUILD)
       add_op_reduction_include_dirs(${target})
     endif()
+  target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-std=c++17>")
 
     if (HAS_GUARD_CF)
       target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-Xcompiler /guard:cf>")
@@ -151,10 +152,12 @@
     set(CUDNN_FRONTEND_BUILD_SAMPLES OFF)
     set(CUDNN_FRONTEND_BUILD_UNIT_TESTS OFF)
     set(CUDNN_FRONTEND_BUILD_PYTHON_BINDINGS OFF)
+    set(CUDNN_PATH ${onnxruntime_CUDNN_HOME})
     FetchContent_Declare(
         cudnn_frontend
-        GIT_REPOSITORY https://github.com/NVIDIA/cudnn-frontend
-        GIT_TAG 1.0/pre_release_4
+#        GIT_REPOSITORY https://github.com/NVIDIA/cudnn-frontend
+        GIT_REPOSITORY https://github.com/gedoensmax/cudnn-frontend
+        GIT_TAG 1.0/release
         )
     FetchContent_MakeAvailable(cudnn_frontend)
 

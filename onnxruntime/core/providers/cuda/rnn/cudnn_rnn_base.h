@@ -10,9 +10,10 @@
 #include "core/providers/cuda/cuda_kernel.h"
 #include "core/providers/cuda/cudnn_common.h"
 
+#if (CUDNN_MAJOR < 9)
+
 namespace onnxruntime {
 namespace cuda {
-
 enum RNN_Input_Index {
   X = 0,
   W = 1,
@@ -181,6 +182,6 @@ class CudnnRnnBase : public CudaKernel {
     Y_c = 2
   };
 };
-
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif

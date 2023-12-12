@@ -7,6 +7,7 @@
 #include "core/common/gsl.h"
 #include "core/providers/cuda/cuda_common.h"
 #include <cudnn.h>
+#if (CUDNN_MAJOR < 9)
 
 namespace onnxruntime {
 namespace cuda {
@@ -30,3 +31,4 @@ class GRU final : public CudnnRnnBase<T> {
 
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif

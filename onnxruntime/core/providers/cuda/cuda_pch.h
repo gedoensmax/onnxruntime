@@ -14,6 +14,7 @@
 #include <cusparse.h>
 #include <curand.h>
 #include <cudnn.h>
+#include <cudnn_frontend.h>
 #include <cufft.h>
 #include <cublasLt.h>
 

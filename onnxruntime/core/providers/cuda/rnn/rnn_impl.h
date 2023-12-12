@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include "core/providers/cuda/shared_inc/cuda_utils.h"
 
+#if (CUDNN_MAJOR < 9)
+
 namespace onnxruntime {
 namespace cuda {
 
@@ -47,3 +49,4 @@ void MaskZeroSequences(cudaStream_t stream,
                        const size_t N);
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif

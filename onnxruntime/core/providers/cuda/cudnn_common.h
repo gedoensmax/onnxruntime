@@ -7,7 +7,9 @@
 #include <cfloat>
 
 #include "core/providers/cuda/cuda_common.h"
-
+#ifdef ENABLE_CUDA_NHWC_OPS
+#include <cudnn_frontend.h>
+#endif
 namespace onnxruntime {
 namespace cuda {
 
@@ -258,5 +260,21 @@ SetPoolingNdDescriptorHelper(cudnnPoolingDescriptor_t poolingDesc,
   return cudnnSetPoolingNdDescriptor(poolingDesc, mode, maxpoolingNanOpt, nbDims, windowDimA, paddingA, strideA);
 }
 
-}  // namespace cuda
-}  // namespace onnxruntime
+#ifdef ENABLE_CUDA_NHWC_OPS
+#define CUDNN_FE_RETURN_IF_ERROR(expr) ORT_RETURN_IF_ERROR(CUDNN_FE_CALL(expr))
+
+class CudnnFeTensor final {
+public:
+  CudnnFeTensor(const Tensor* tensor, const std::string& name,
+                bool nhwc, std::optional<cudnn_frontend::DataType_t> dtype = {});
+
+  template <typename T>
+  static cudnn_frontend::DataType_t GetDataType();
+  cudnn_frontend::graph::Tensor_attributes Get() { return tensor_; }
+
+private:
+  cudnn_frontend::graph::Tensor_attributes tensor_;
+};
+#endif
+} // namespace cuda
+} // namespace onnxruntime

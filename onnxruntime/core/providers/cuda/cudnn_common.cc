@@ -9,6 +9,8 @@
 #include "core/common/gsl.h"
 #include "shared_inc/cuda_call.h"
 #include "core/providers/cpu/tensor/utils.h"
+#include "google/protobuf/stubs/port.h"
+#include "nn/conv.h"
 
 namespace onnxruntime {
 namespace cuda {
@@ -218,6 +220,92 @@ const Float8E5M2 Consts<Float8E5M2>::Zero = Float8E5M2(0.0f, true);
 template <>
 const Float8E5M2 Consts<Float8E5M2>::One = Float8E5M2(1.0f, true);
 
+#endif
+
+#ifdef ENABLE_CUDA_NHWC_OPS
+static std::vector<int64_t> generateStrides(const std::vector<int64_t> shape, bool channels_last) {
+  // For INT8x4 and INT8x32 we still compute standard strides here to input
+  // into the cuDNN functions. We will manually scale by resizeFactor in the cpu ref.
+  std::vector<int64_t> strides(shape.size());
+  int nbDims = strides.size();
+  if (nbDims <= 1) {
+    strides[0] = 1;
+    return strides;
+  }
+  if (channels_last) {
+    // Here we assume that the format is CUDNN_TENSOR_NHWC
+    strides[1] = 1;
+    strides[nbDims - 1] = strides[1] * shape[1];
+    for (int64_t d = nbDims - 2; d >= 2; d--) {
+      strides[d] = strides[d + 1] * shape[d + 1];
+    }
+    strides[0] = strides[2] * shape[2];
+  } else {
+    strides[nbDims - 1] = 1;
+    for (int64_t d = nbDims - 2; d >= 0; d--) {
+      strides[d] = strides[d + 1] * shape[d + 1];
+    }
+  }
+  return strides;
+}
+
+
+CudnnFeTensor::CudnnFeTensor(const Tensor* tensor, const std::string& name, bool nhwc, std::optional<cudnn_frontend::DataType_t> dtype) {
+  const auto& shape = tensor->Shape().AsShapeVector();
+  std::vector<int64_t> shape_vec;
+  if (shape.size() == 1) {
+    shape_vec = {1, shape[0], 1, 1};
+  } else if (shape.size() == 2) {
+    // shape_vec.resize(shape.size());
+    // std::memcpy(shape_vec.data(),shape.data(),shape.size() * sizeof(int64_t));
+  } else if (shape.size() == 3) {
+    // shape_vec.resize(shape.size());
+    // std::memcpy(shape_vec.data(),shape.data(),shape.size() * sizeof(int64_t));
+  } else if (shape.size() == 4) {
+    shape_vec = {shape[0], shape[3], shape[1], shape[2]};
+  } else if (shape.size() == 5) {
+    shape_vec = {shape[0], shape[4], shape[1], shape[2], shape[3]};
+  }
+  auto strides = generateStrides(shape_vec, nhwc);
+  if (dtype.has_value()) {
+    tensor_ = cudnn_frontend::graph::Tensor_attributes().set_name(name)
+                                                        .set_dim(shape_vec)
+                                                        .set_stride(strides)
+                                                        .set_data_type(dtype.value());
+  } else {
+    tensor_ = cudnn_frontend::graph::Tensor_attributes().set_name(name).set_dim(shape_vec).set_stride(strides);
+  }
+}
+
+template <typename T>
+cudnn_frontend::DataType_t CudnnFeTensor::GetDataType() {
+  return cudnn_frontend::DataType_t::NOT_SET;
+}
+
+template <>
+cudnn_frontend::DataType_t CudnnFeTensor::GetDataType<float>() {
+  return cudnn_frontend::DataType_t::FLOAT;
+}
+
+template <>
+cudnn_frontend::DataType_t CudnnFeTensor::GetDataType<half>() {
+  return cudnn_frontend::DataType_t::HALF;
+}
+
+template <>
+cudnn_frontend::DataType_t CudnnFeTensor::GetDataType<double>() {
+  return cudnn_frontend::DataType_t::DOUBLE;
+}
+
+template <>
+cudnn_frontend::DataType_t CudnnFeTensor::GetDataType<int8_t>() {
+  return cudnn_frontend::DataType_t::INT8;
+}
+
+template <>
+cudnn_frontend::DataType_t CudnnFeTensor::GetDataType<uint8_t>() {
+  return cudnn_frontend::DataType_t::UINT8;
+}
 #endif
 
 }  // namespace cuda

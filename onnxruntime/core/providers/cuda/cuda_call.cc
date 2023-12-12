@@ -20,6 +20,11 @@ const char* CudaErrString(ERRTYPE) {
   ORT_NOT_IMPLEMENTED();
 }
 
+template <typename ERRTYPE>
+int CudaErrCode(ERRTYPE err_code) {
+    return (int)err_code;
+}
+
 #define CASE_ENUM_TO_STR(x) \
   case x:                   \
     return #x
@@ -28,6 +33,19 @@ template <>
 const char* CudaErrString<cudaError_t>(cudaError_t x) {
   cudaDeviceSynchronize();
   return cudaGetErrorString(x);
+}
+
+template <>
+const char* CudaErrString<cudnn_frontend::error_t>(cudnn_frontend::error_t x) {
+    auto msg = x.get_message();
+    char* ret_msg = new char[msg.size() + 1];
+    std::strcpy(ret_msg, msg.c_str());
+    return ret_msg; // TODO this is terrible and leaks !
+}
+
+template <>
+int CudaErrCode(cudnn_frontend::error_t err_code) {
+    return (int)err_code.get_code();
 }
 
 template <>
@@ -85,9 +103,9 @@ const char* CudaErrString<ncclResult_t>(ncclResult_t e) {
 }
 #endif
 
-template <typename ERRTYPE, bool THRW>
+template <typename ERRTYPE, bool THRW, typename SUCCTYPE = ERRTYPE>
 std::conditional_t<THRW, void, Status> CudaCall(
-    ERRTYPE retCode, const char* exprString, const char* libName, ERRTYPE successCode, const char* msg, const char* file, const int line) {
+    ERRTYPE retCode, const char* exprString, const char* libName, SUCCTYPE successCode, const char* msg, const char* file, const int line) {
   if (retCode != successCode) {
     try {
 #ifdef _WIN32
@@ -106,7 +124,7 @@ std::conditional_t<THRW, void, Status> CudaCall(
       cudaGetLastError();  // clear last CUDA error
       static char str[1024];
       snprintf(str, 1024, "%s failure %d: %s ; GPU=%d ; hostname=%s ; file=%s ; line=%d ; expr=%s; %s",
-               libName, (int)retCode, CudaErrString(retCode), currentCudaDevice,
+               libName, CudaErrCode(retCode), CudaErrString(retCode), currentCudaDevice,
                hostname,
                file, line, exprString, msg);
       if constexpr (THRW) {
@@ -140,6 +158,8 @@ template Status CudaCall<curandStatus_t, false>(curandStatus_t retCode, const ch
 template void CudaCall<curandStatus_t, true>(curandStatus_t retCode, const char* exprString, const char* libName, curandStatus_t successCode, const char* msg, const char* file, const int line);
 template Status CudaCall<cufftResult, false>(cufftResult retCode, const char* exprString, const char* libName, cufftResult successCode, const char* msg, const char* file, const int line);
 template void CudaCall<cufftResult, true>(cufftResult retCode, const char* exprString, const char* libName, cufftResult successCode, const char* msg, const char* file, const int line);
+template Status CudaCall<cudnn_frontend::error_t , false, cudnn_frontend::error_code_t>(cudnn_frontend::error_t  retCode, const char* exprString, const char* libName, cudnn_frontend::error_code_t  successCode, const char* msg, const char* file, const int line);
+template void CudaCall<cudnn_frontend::error_t , true, cudnn_frontend::error_code_t>(cudnn_frontend::error_t  retCode, const char* exprString, const char* libName, cudnn_frontend::error_code_t  successCode, const char* msg, const char* file, const int line);
 
 #ifdef ORT_USE_NCCL
 template Status CudaCall<ncclResult_t, false>(ncclResult_t retCode, const char* exprString, const char* libName, ncclResult_t successCode, const char* msg, const char* file, const int line);

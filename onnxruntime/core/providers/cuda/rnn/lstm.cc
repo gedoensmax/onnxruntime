@@ -4,6 +4,8 @@
 #include "core/providers/shared_library/provider_api.h"
 #include "lstm.h"
 
+#if (CUDNN_MAJOR < 9)
+
 namespace onnxruntime {
 namespace cuda {
 
@@ -44,3 +46,4 @@ REGISTER_KERNEL_TYPED(MLFloat16);
 
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif

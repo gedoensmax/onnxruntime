@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include <cudnn_frontend.h>
+
 #include "contrib_ops/cuda/conv_pw.h"
 #include "core/common/span_utils.h"
 #include "core/providers/cuda/cuda_common.h"
+#include "core/providers/cuda/cuda_pch.h"
 #include "core/providers/cuda/shared_inc/fpgeneric.h"
 #include "core/providers/cuda/tensor/slice.h"
 
@@ -12,6 +13,28 @@ namespace onnxruntime {
 namespace contrib {
 namespace cuda {
 
+static std::vector<int64_t> generateStrides(const onnxruntime::TensorShapeVector& shape, bool channels_last) {
+  // For INT8x4 and INT8x32 we still compute standard strides here to input
+  // into the cuDNN functions. We will manually scale by resizeFactor in the cpu ref.
+  std::vector<int64_t> strides;
+  strides.resize(shape.size());
+  int nbDims = strides.size();
+  if (channels_last) {
+    // Here we assume that the format is CUDNN_TENSOR_NHWC
+    strides[1] = 1;
+    strides[nbDims - 1] = strides[1] * shape[1];
+    for (int64_t d = nbDims - 2; d >= 2; d--) {
+      strides[d] = strides[d + 1] * shape[d + 1];
+    }
+    strides[0] = strides[2] * shape[2];
+  } else {
+    strides[nbDims - 1] = 1;
+    for (int64_t d = nbDims - 2; d >= 0; d--) {
+      strides[d] = strides[d + 1] * shape[d + 1];
+    }
+  }
+  return strides;
+}
 
 template <typename T, bool NHWC>
 const cudnnConvolutionFwdAlgo_t NhwcFusedConvPW<T, NHWC>::kAllAlgos[] = {
@@ -45,29 +68,6 @@ static size_t GetMaxWorkspaceSize(cudnnHandle_t handle, const CudnnConvState<cud
     max_ws_size = sz;
   }
   return max_ws_size;
-}
-
-static std::vector<int64_t> generateStrides(const onnxruntime::TensorShapeVector& shape, bool channels_last) {
-  // For INT8x4 and INT8x32 we still compute standard strides here to input
-  // into the cuDNN functions. We will manually scale by resizeFactor in the cpu ref.
-  std::vector<int64_t> strides;
-  strides.resize(shape.size());
-  int nbDims = strides.size();
-  if (channels_last) {
-    // Here we assume that the format is CUDNN_TENSOR_NHWC
-    strides[1] = 1;
-    strides[nbDims - 1] = strides[1] * shape[1];
-    for (int64_t d = nbDims - 2; d >= 2; d--) {
-      strides[d] = strides[d + 1] * shape[d + 1];
-    }
-    strides[0] = strides[2] * shape[2];
-  } else {
-    strides[nbDims - 1] = 1;
-    for (int64_t d = nbDims - 2; d >= 0; d--) {
-      strides[d] = strides[d + 1] * shape[d + 1];
-    }
-  }
-  return strides;
 }
 
 template <typename T, bool NHWC>

@@ -5,6 +5,8 @@
 
 #include "cudnn_rnn_base.h"
 
+#if (CUDNN_MAJOR < 9)
+
 namespace onnxruntime {
 namespace cuda {
 
@@ -27,3 +29,4 @@ class LSTM final : public CudnnRnnBase<T> {
 
 }  // namespace cuda
 }  // namespace onnxruntime
+#endif
