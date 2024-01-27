@@ -249,9 +249,7 @@ static std::vector<int64_t> generateStrides(const std::vector<int64_t> shape, bo
   return strides;
 }
 
-
-CudnnFeTensor::CudnnFeTensor(const Tensor* tensor, const std::string& name, bool nhwc, std::optional<cudnn_frontend::DataType_t> dtype) {
-  const auto& shape = tensor->Shape().AsShapeVector();
+CudnnFeTensor::CudnnFeTensor(const onnxruntime::TensorShapeVector& shape, const std::string& name, bool nhwc, std::optional<cudnn_frontend::DataType_t> dtype) {
   std::vector<int64_t> shape_vec;
   if (shape.size() == 1) {
     shape_vec = {1, shape[0], 1, 1};

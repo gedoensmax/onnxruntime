@@ -264,15 +264,19 @@ SetPoolingNdDescriptorHelper(cudnnPoolingDescriptor_t poolingDesc,
 #define CUDNN_FE_RETURN_IF_ERROR(expr) ORT_RETURN_IF_ERROR(CUDNN_FE_CALL(expr))
 
 class CudnnFeTensor final {
-public:
+ public:
   CudnnFeTensor(const Tensor* tensor, const std::string& name,
-                bool nhwc, std::optional<cudnn_frontend::DataType_t> dtype = {});
+                bool nhwc, std::optional<cudnn_frontend::DataType_t> dtype = {})
+      : CudnnFeTensor(tensor->Shape().AsShapeVector(), name, nhwc, dtype){};
+
+  CudnnFeTensor(const onnxruntime::TensorShapeVector& shape, const std::string& name,
+                bool nhwc, std::optional<cudnn_frontend::DataType_t> dtype);
 
   template <typename T>
   static cudnn_frontend::DataType_t GetDataType();
   cudnn_frontend::graph::Tensor_attributes Get() { return tensor_; }
 
-private:
+ private:
   cudnn_frontend::graph::Tensor_attributes tensor_;
 };
 #endif

@@ -150,6 +150,15 @@ struct CudnnConvState {
   const void* z_data = nullptr;
   CudnnConvolutionDescriptor conv_desc;
 
+
+  bool graph_generated = false;
+
+  std::unique_ptr<cudnn_frontend::graph::Graph> cudnn_fe_graph;
+  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_X;
+  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_W;
+  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_Y;
+  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_B;
+
   struct PerfResultParams {
     decltype(AlgoPerfType().algo) algo;
     decltype(AlgoPerfType().memory) memory;

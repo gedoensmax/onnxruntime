@@ -154,8 +154,9 @@ Status Conv<T, NHWC>::UpdateState(OpKernelContext* context, bool bias_expected) 
   }
 
   // set B
+  const Tensor* B = nullptr;
   if (context->InputCount() >= 3) {
-    const Tensor* B = context->Input<Tensor>(2);
+    B = context->Input<Tensor>(2);
     s_.b_data = reinterpret_cast<const CudaT*>(B->Data<T>());
   } else {
     s_.b_data = nullptr;
@@ -349,66 +350,124 @@ Status Conv<T, NHWC>::UpdateState(OpKernelContext* context, bool bias_expected) 
       CUDA_CALL_THROW(cudaMemsetAsync(s_.b_zero, 0, malloc_size, Stream(context)));
     }
 
-    if (!s_.cached_benchmark_results.contains(x_dims_cudnn)) {
-      // set math type to tensor core before algorithm search
-      if constexpr (std::is_same<T, MLFloat16>::value)
-        CUDNN_RETURN_IF_ERROR(cudnnSetConvolutionMathType(s_.conv_desc, CUDNN_TENSOR_OP_MATH));
+    if (NHWC && !s_.graph_generated) {
+      s_.graph_generated = true;
+      s_.cudnn_fe_graph = std::make_unique<cudnn_frontend::graph::Graph>();
 
-      cudnnConvolutionFwdAlgoPerf_t perf;
-      int algo_count = 1;
-      int cudnn_conv_algo = cuda_ep->GetCudnnConvAlgo();
-      ORT_ENFORCE(cudnn_conv_algo > -1 && cudnn_conv_algo < 3, "cudnn_conv_algo should be 0, 1 or 2, but got ", cudnn_conv_algo);
-      switch (cudnn_conv_algo) {
-        case 0: {
-          static constexpr int num_algos = CUDNN_CONVOLUTION_FWD_ALGO_COUNT;
-          size_t max_ws_size = cuda_ep->GetCudnnConvUseMaxWorkspace() ? GetMaxWorkspaceSize(GetCudnnHandle(context), s_, kAllAlgos, num_algos)
-                                                                      : AlgoSearchWorkspaceSize;
-          // Use GetTransientScratchBuffer() so the workspace can be freed instead of cached.
-          // Because the benchmarking uses a huge amount of memory, e.g. a few GBs.
-          IAllocatorUniquePtr<void> algo_search_workspace = GetTransientScratchBuffer<void>(max_ws_size);
-          CUDNN_RETURN_IF_ERROR(cudnnFindConvolutionForwardAlgorithmEx(
-              GetCudnnHandle(context),
-              s_.x_tensor,
-              s_.x_data,
-              s_.w_desc,
-              s_.w_data,
-              s_.conv_desc,
-              s_.y_tensor,
-              s_.y_data,
-              1,            // requestedAlgoCount
-              &algo_count,  // returnedAlgoCount
-              &perf,
-              algo_search_workspace.get(),
-              max_ws_size));
-          break;
-        }
-        case 1:
-          CUDNN_RETURN_IF_ERROR(cudnnGetConvolutionForwardAlgorithm_v7(
-              GetCudnnHandle(context),
-              s_.x_tensor,
-              s_.w_desc,
-              s_.conv_desc,
-              s_.y_tensor,
-              1,            // requestedAlgoCount
-              &algo_count,  // returnedAlgoCount
-              &perf));
-          break;
+      cudnn_frontend::DataType_t data_type = CudnnFeTensor::GetDataType<CudaT>();
 
-        default:
-          perf.algo = kDefaultConvAlgo;
-          CUDNN_RETURN_IF_ERROR(GetWorkspaceSize(GetCudnnHandle(context), s_, perf.algo, &perf.memory));
-          if (std::is_same<T, MLFloat16>::value) {
-            perf.mathType = CUDNN_TENSOR_OP_MATH;
-          } else {
-            perf.mathType = CUDNN_DEFAULT_MATH;
-          }
+      s_.cudnn_fe_graph->set_io_data_type(data_type)
+          .set_compute_data_type(data_type == cudnn_frontend::DataType_t::HALF ? cudnn_frontend::DataType_t::FLOAT : data_type)
+          .set_intermediate_data_type(data_type);
+
+      s_.cudnn_fe_X = s_.cudnn_fe_graph->tensor(CudnnFeTensor(X, "x", NHWC, data_type).Get());
+      s_.cudnn_fe_W = s_.cudnn_fe_graph->tensor(CudnnFeTensor(W, "w", NHWC, data_type).Get());
+
+      std::vector<int64_t> fe_conv_padding;
+      std::vector<int64_t> fe_conv_stride;
+      std::vector<int64_t> fe_conv_dilations;
+      for (size_t i = 0; i < kernel_shape.size(); i++) {
+        fe_conv_padding.push_back(pads[i]);
+        fe_conv_stride.push_back(strides[i]);
+        fe_conv_dilations.push_back(dilations[i]);
       }
-      s_.cached_benchmark_results.insert(x_dims_cudnn, {perf.algo, perf.memory, perf.mathType});
+
+      auto conv_options =
+          cudnn_frontend::graph::Conv_fprop_attributes()
+              .set_padding(fe_conv_padding)
+              .set_stride(fe_conv_stride)
+              .set_dilation(fe_conv_dilations);
+
+      auto conv_output = s_.cudnn_fe_graph->conv_fprop(s_.cudnn_fe_X, s_.cudnn_fe_W, conv_options);
+
+      if (bias_expected || B != nullptr) {
+        int64_t bias_size;
+        if (B != nullptr) {
+          const auto& b_shape = B->Shape();
+          bias_size = b_shape[0];
+        } else {
+          bias_size = w_dims[0];
+        }
+        s_.cudnn_fe_B = s_.cudnn_fe_graph->tensor(CudnnFeTensor({bias_size}, "b", NHWC, data_type).Get());
+        auto bias_options = cudnn_frontend::graph::Pointwise_attributes().set_mode(cudnn_frontend::PointwiseMode_t::ADD);
+
+        s_.cudnn_fe_Y = s_.cudnn_fe_graph->pointwise(conv_output, s_.cudnn_fe_B, bias_options);
+      } else {
+        s_.cudnn_fe_Y = conv_output;
+      }
+
+      s_.cudnn_fe_Y->set_output(true);
+
+      // Validation of graph
+      s_.cudnn_fe_graph->validate().is_good();
+      auto handle = GetCudnnHandle(context);
+      s_.cudnn_fe_graph->build_operation_graph(handle).is_good();
+      s_.cudnn_fe_graph->create_execution_plans({cudnn_frontend::HeurMode_t::A}).is_good();
+      s_.cudnn_fe_graph->check_support(handle).is_good();
+      s_.cudnn_fe_graph->build_plans(handle).is_good();
+
+    } else if (!NHWC) {
+      if (!s_.cached_benchmark_results.contains(x_dims_cudnn)) {
+        // set math type to tensor core before algorithm search
+        if constexpr (std::is_same<T, MLFloat16>::value)
+          CUDNN_RETURN_IF_ERROR(cudnnSetConvolutionMathType(s_.conv_desc, CUDNN_TENSOR_OP_MATH));
+
+        cudnnConvolutionFwdAlgoPerf_t perf;
+        int algo_count = 1;
+        int cudnn_conv_algo = cuda_ep->GetCudnnConvAlgo();
+        ORT_ENFORCE(cudnn_conv_algo > -1 && cudnn_conv_algo < 3, "cudnn_conv_algo should be 0, 1 or 2, but got ", cudnn_conv_algo);
+        switch (cudnn_conv_algo) {
+          case 0: {
+            static constexpr int num_algos = CUDNN_CONVOLUTION_FWD_ALGO_COUNT;
+            size_t max_ws_size = cuda_ep->GetCudnnConvUseMaxWorkspace() ? GetMaxWorkspaceSize(GetCudnnHandle(context), s_, kAllAlgos, num_algos)
+                                                                        : AlgoSearchWorkspaceSize;
+            // Use GetTransientScratchBuffer() so the workspace can be freed instead of cached.
+            // Because the benchmarking uses a huge amount of memory, e.g. a few GBs.
+            IAllocatorUniquePtr<void> algo_search_workspace = GetTransientScratchBuffer<void>(max_ws_size);
+            CUDNN_RETURN_IF_ERROR(cudnnFindConvolutionForwardAlgorithmEx(
+                GetCudnnHandle(context),
+                s_.x_tensor,
+                s_.x_data,
+                s_.w_desc,
+                s_.w_data,
+                s_.conv_desc,
+                s_.y_tensor,
+                s_.y_data,
+                1,            // requestedAlgoCount
+                &algo_count,  // returnedAlgoCount
+                &perf,
+                algo_search_workspace.get(),
+                max_ws_size));
+            break;
+          }
+          case 1:
+            CUDNN_RETURN_IF_ERROR(cudnnGetConvolutionForwardAlgorithm_v7(
+                GetCudnnHandle(context),
+                s_.x_tensor,
+                s_.w_desc,
+                s_.conv_desc,
+                s_.y_tensor,
+                1,            // requestedAlgoCount
+                &algo_count,  // returnedAlgoCount
+                &perf));
+            break;
+
+          default:
+            perf.algo = kDefaultConvAlgo;
+            CUDNN_RETURN_IF_ERROR(GetWorkspaceSize(GetCudnnHandle(context), s_, perf.algo, &perf.memory));
+            if (std::is_same<T, MLFloat16>::value) {
+              perf.mathType = CUDNN_TENSOR_OP_MATH;
+            } else {
+              perf.mathType = CUDNN_DEFAULT_MATH;
+            }
+        }
+        s_.cached_benchmark_results.insert(x_dims_cudnn, {perf.algo, perf.memory, perf.mathType});
+      }
+      const auto& perf = s_.cached_benchmark_results.at(x_dims_cudnn);
+      CUDNN_RETURN_IF_ERROR(cudnnSetConvolutionMathType(s_.conv_desc, perf.mathType));
+      s_.algo = perf.algo;
+      s_.workspace_bytes = perf.memory;
     }
-    const auto& perf = s_.cached_benchmark_results.at(x_dims_cudnn);
-    CUDNN_RETURN_IF_ERROR(cudnnSetConvolutionMathType(s_.conv_desc, perf.mathType));
-    s_.algo = perf.algo;
-    s_.workspace_bytes = perf.memory;
   } else {
     // set Y
     s_.Y = context->Output(0, s_.y_dims);
@@ -432,27 +491,45 @@ Status Conv<T, NHWC>::ComputeInternal(OpKernelContext* context) const {
   if (s_.Y->Shape().Size() == 0) {
     return Status::OK();
   }
-  const auto alpha = Consts<CudaT>::One;
-  const auto beta = Consts<CudaT>::Zero;
-  IAllocatorUniquePtr<void> workspace = GetWorkSpace(context->GetComputeStream());
+
   auto cudnn_handle = GetCudnnHandle(context);
-  CUDNN_RETURN_IF_ERROR(cudnnConvolutionForward(cudnn_handle,
-                                                &alpha,
-                                                s_.x_tensor,
-                                                s_.x_data,
-                                                s_.w_desc,
-                                                s_.w_data,
-                                                s_.conv_desc,
-                                                s_.algo,
-                                                workspace.get(),
-                                                s_.workspace_bytes,
-                                                &beta,
-                                                s_.y_tensor,
-                                                s_.y_data));
-  if (nullptr != s_.b_data) {
-    CUDNN_RETURN_IF_ERROR(cudnnAddTensor(cudnn_handle, &alpha, s_.b_tensor, s_.b_data,
-                                         &alpha, s_.y_tensor, s_.y_data));
+
+  if (NHWC) {
+    void* x_data = const_cast<void*>(s_.x_data);
+    void* w_data = const_cast<void*>(s_.w_data);
+    std::unordered_map<std::shared_ptr<cudnn_frontend::graph::Tensor_attributes>, void*> variant_pack = {
+        {s_.cudnn_fe_X, x_data}, {s_.cudnn_fe_W, w_data}, {s_.cudnn_fe_Y, s_.y_data}};
+
+    if (s_.b_data != nullptr) {
+      void* b_data = const_cast<void*>(s_.b_data);
+      variant_pack.insert({s_.cudnn_fe_B, b_data});
+    }
+
+    s_.cudnn_fe_graph->execute(cudnn_handle, variant_pack, nullptr).is_good();
+
+  } else {
+    const auto alpha = Consts<CudaT>::One;
+    const auto beta = Consts<CudaT>::Zero;
+    IAllocatorUniquePtr<void> workspace = GetWorkSpace(context->GetComputeStream());
+    CUDNN_RETURN_IF_ERROR(cudnnConvolutionForward(cudnn_handle,
+                                                  &alpha,
+                                                  s_.x_tensor,
+                                                  s_.x_data,
+                                                  s_.w_desc,
+                                                  s_.w_data,
+                                                  s_.conv_desc,
+                                                  s_.algo,
+                                                  workspace.get(),
+                                                  s_.workspace_bytes,
+                                                  &beta,
+                                                  s_.y_tensor,
+                                                  s_.y_data));
+    if (nullptr != s_.b_data) {
+      CUDNN_RETURN_IF_ERROR(cudnnAddTensor(cudnn_handle, &alpha, s_.b_tensor, s_.b_data,
+                                           &alpha, s_.y_tensor, s_.y_data));
+    }
   }
+
   // To deal with asymmetric padding, we may have over-padded on one or both sides of the spatial dimensions
   // This may have lead to extra results that are unnecessary and hence we slice that off here
   if (s_.post_slicing_required) {
