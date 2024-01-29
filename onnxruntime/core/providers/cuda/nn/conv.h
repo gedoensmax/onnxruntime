@@ -151,9 +151,7 @@ struct CudnnConvState {
   CudnnConvolutionDescriptor conv_desc;
 
 
-  bool graph_generated = false;
-
-  std::unique_ptr<cudnn_frontend::graph::Graph> cudnn_fe_graph;
+  std::unique_ptr<cudnn_frontend::graph::Graph> cudnn_fe_graph = nullptr;
   std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_X;
   std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_W;
   std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_Y;

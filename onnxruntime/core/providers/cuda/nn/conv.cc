@@ -350,8 +350,7 @@ Status Conv<T, NHWC>::UpdateState(OpKernelContext* context, bool bias_expected) 
       CUDA_CALL_THROW(cudaMemsetAsync(s_.b_zero, 0, malloc_size, Stream(context)));
     }
 
-    if (NHWC && !s_.graph_generated) {
-      s_.graph_generated = true;
+    if (NHWC && s_.cudnn_fe_graph == nullptr) {
       s_.cudnn_fe_graph = std::make_unique<cudnn_frontend::graph::Graph>();
 
       cudnn_frontend::DataType_t data_type = CudnnFeTensor::GetDataType<CudaT>();
@@ -402,9 +401,11 @@ Status Conv<T, NHWC>::UpdateState(OpKernelContext* context, bool bias_expected) 
       s_.cudnn_fe_graph->validate().is_good();
       auto handle = GetCudnnHandle(context);
       s_.cudnn_fe_graph->build_operation_graph(handle).is_good();
-      s_.cudnn_fe_graph->create_execution_plans({cudnn_frontend::HeurMode_t::A}).is_good();
+      s_.cudnn_fe_graph->create_execution_plans({cudnn_frontend::HeurMode_t::A}).is_good(); // TODO: JTischbein nicht nur heur
       s_.cudnn_fe_graph->check_support(handle).is_good();
       s_.cudnn_fe_graph->build_plans(handle).is_good();
+
+      s_.workspace_bytes = s_.cudnn_fe_graph->get_workspace_size();
 
     } else if (!NHWC) {
       if (!s_.cached_benchmark_results.contains(x_dims_cudnn)) {
@@ -505,7 +506,11 @@ Status Conv<T, NHWC>::ComputeInternal(OpKernelContext* context) const {
       variant_pack.insert({s_.cudnn_fe_B, b_data});
     }
 
-    s_.cudnn_fe_graph->execute(cudnn_handle, variant_pack, nullptr).is_good();
+    onnxruntime::IAllocatorUniquePtr<void> workspace = GetWorkSpace(context->GetComputeStream());
+
+    void* workspacePtr = static_cast<void*>(workspace.get());
+
+    s_.cudnn_fe_graph->execute(cudnn_handle, variant_pack, workspacePtr).is_good();
 
   } else {
     const auto alpha = Consts<CudaT>::One;
