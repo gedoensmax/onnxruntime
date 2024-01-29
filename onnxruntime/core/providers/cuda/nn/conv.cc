@@ -506,9 +506,7 @@ Status Conv<T, NHWC>::ComputeInternal(OpKernelContext* context) const {
       variant_pack.insert({s_.cudnn_fe_B, b_data});
     }
 
-    onnxruntime::IAllocatorUniquePtr<void> workspace = GetWorkSpace(context->GetComputeStream());
-
-    void* workspacePtr = static_cast<void*>(workspace.get());
+    void* workspacePtr = static_cast<void*>(GetWorkSpace(context->GetComputeStream()).get());
 
     s_.cudnn_fe_graph->execute(cudnn_handle, variant_pack, workspacePtr).is_good();
 

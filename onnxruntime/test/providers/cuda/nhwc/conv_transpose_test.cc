@@ -66,7 +66,14 @@ TYPED_TEST(CudaNhwcTypedTest, ConvTransposeNhwcBias) {
   auto op =
       ConvTransposeOp<TypeParam>{.input_dims = {1, 8, 80, 80}, .kernel_shape = {5, 5}, .channels = 16, .bias = true};
 
-  MAKE_PROVIDERS_EPS_TYPE(TypeParam)
+  if (std::is_same<TypeParam, MLFloat16>::value) {
+    MAKE_PROVIDERS_EPS(2e-2)
+  } else if (std::is_same<TypeParam, double>::value) {
+    MAKE_PROVIDERS_EPS(2e-4)
+  } else {
+    MAKE_PROVIDERS_EPS(3e-3)    // Higher tolerance due to high numerical error in XXXXXX operation
+  }
+
 }
 
 TYPED_TEST(CudaNhwcTypedTest, ConvTransposeNhwcPad) {

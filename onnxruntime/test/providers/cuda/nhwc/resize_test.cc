@@ -15,7 +15,7 @@ struct ResizeOp {
   std::vector<int64_t> output_dims;
 
   std::unique_ptr<CompareOpTester> get_test() {
-    RandomValueGenerator random{};
+        RandomValueGenerator random{};
 
     auto test = std::make_unique<CompareOpTester>("Resize", 13);
     std::vector<T> input_data = random.Uniform<T>(input_dims, 0.0f, 0.3f);
@@ -23,17 +23,25 @@ struct ResizeOp {
     test->AddInput<T>("X", input_dims, input_data);
 
     std::vector<int64_t> dims = {static_cast<int64_t>(input_dims.size())};
+
     test->AddInput<float>("roi", {0}, {});
+
     if (!scales.empty()) {
       test->AddInput<float>("scales", dims, scales);
       for (size_t i = 0; i < input_dims.size(); ++i) {
         output_dims.push_back(input_dims[i] * scales[i]);
       }
+    } else {
+      test->AddInput<float>("", {0}, scales);
     }
+
     if (!sizes.empty()) {
-      test->AddInput<int64_t >("sizes", dims, sizes);
+      test->AddInput<int64_t>("sizes", dims, sizes);
       output_dims = sizes;
+    } else {
+      test->AddInput<int64_t>("", {0}, sizes);
     }
+
     std::vector<T> output_data = FillZeros<T>(output_dims);
     test->AddOutput<T>("Y", output_dims, output_data);
     return test;
