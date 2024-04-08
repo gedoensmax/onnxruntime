@@ -2594,7 +2594,7 @@ const std::unordered_set<std::string_view>& GetLayoutSensitiveOps() {
   // List of all layout sensitive ops defined in ONNX standard.
   static std::unordered_set<std::string_view> layout_sensitive_ops = {
       // normalization
-      "BatchNormalization", "InstanceNormalization",
+      "BatchNormalization", "InstanceNormalization", "GroupNormalization",
 
       // convolutions
       "Conv", "QLinearConv", "ConvTranspose",

@@ -24,6 +24,7 @@
 #include "core/optimizer/common_subexpression_elimination.h"
 #include "core/optimizer/constant_folding.h"
 #include "core/optimizer/constant_sharing.h"
+#include "core/optimizer/group_norm_detection.h"
 #include "core/optimizer/conv_add_act_fusion.h"
 #include "core/optimizer/conv_add_fusion.h"
 #include "core/optimizer/conv_bn_fusion.h"
@@ -252,7 +253,7 @@ InlinedVector<std::unique_ptr<GraphTransformer>> GenerateTransformers(
     case TransformerLevel::Level2: {
       // we run TransposeOptimizer again in Level2 for some CPU EP specific optimizations that can only be
       // applied once nodes are assigned to the CPU EP (which happens between level 1 and level 2).
-      transformers.emplace_back(std::make_unique<TransposeOptimizer>(std::move(cpu_allocator), kCpuExecutionProvider));
+      transformers.emplace_back(std::make_unique<TransposeOptimizer>(cpu_allocator, kCpuExecutionProvider));
 
       const bool enable_quant_qdq_cleanup =
           session_options.config_options.GetConfigOrDefault(kOrtSessionOptionsEnableQuantQDQCleanup, "0") == "1";
@@ -300,6 +301,7 @@ InlinedVector<std::unique_ptr<GraphTransformer>> GenerateTransformers(
       transformers.emplace_back(std::make_unique<MatMulIntegerToFloatFusion>(cpu_dml_eps));
       transformers.emplace_back(std::make_unique<DynamicQuantizeMatMulFusion>(cpu_ep));
 
+      transformers.emplace_back(std::make_unique<GroupNormDetection>(cuda_rocm_eps));
       transformers.emplace_back(std::make_unique<ConvActivationFusion>(cpu_cuda_rocm_acl_armnn_js_eps));
 
       transformers.emplace_back(std::make_unique<GeluFusion>(cpu_cuda_dml_rocm_eps));

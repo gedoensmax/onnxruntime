@@ -25,6 +25,7 @@ class GroupNorm final : public CudaKernel {
   int num_groups_;
   bool channels_last_;
   bool has_skip_;  // true for SkipGroupNorm operator; false for GroupNorm
+  bool is_nhwc_domain_;  // true for SkipGroupNorm operator; false for GroupNorm
   int channels_per_block_;
 };
 

@@ -15,6 +15,10 @@ ONNX_OPERATOR_KERNEL_EX(
     (*KernelDefBuilder::Create()).TypeConstraint("T", BuildKernelDefConstraints<GROUP_NORM_TYPES>()), GroupNorm);
 
 ONNX_OPERATOR_KERNEL_EX(
+    GroupNormNhwc, kMSInternalNHWCDomain, 1, kCudaExecutionProvider,
+    (*KernelDefBuilder::Create()).TypeConstraint("T", BuildKernelDefConstraints<GROUP_NORM_TYPES>()), GroupNorm);
+
+ONNX_OPERATOR_KERNEL_EX(
     SkipGroupNorm, kMSDomain, 1, kCudaExecutionProvider,
     (*KernelDefBuilder::Create()).TypeConstraint("T", BuildKernelDefConstraints<GROUP_NORM_TYPES>()), GroupNorm);
 
@@ -92,6 +96,7 @@ GroupNorm::GroupNorm(const OpKernelInfo& op_info) : CudaKernel(op_info) {
   channels_last_ = (op_info.GetAttrOrDefault<int64_t>("channels_last", static_cast<int64_t>(1)) != 0);
 
   channels_per_block_ = 0;
+  is_nhwc_domain_ = op_info.node().Domain() == kMSInternalNHWCDomain;
 }
 
 Status GroupNorm::PrePack(const Tensor& tensor, int input_idx, AllocatorPtr /*alloc*/,
@@ -131,11 +136,18 @@ Status GroupNorm::ComputeInternal(OpKernelContext* context) const {
                            "input is expected to have 4 dimensions, got ", input_dims.size());
   }
 
+
+
   // Only support NHWC format right now.
   int batch_size = static_cast<int>(input_dims[0]);
   int height = static_cast<int>(input_dims[1]);
   int width = static_cast<int>(input_dims[2]);
   int num_channels = static_cast<int>(input_dims[3]);
+  if (is_nhwc_domain_) {
+      height = static_cast<int>(input_dims[2]);
+      width = static_cast<int>(input_dims[3]);
+      num_channels = static_cast<int>(input_dims[1]);
+  }
 
   if (num_channels % num_groups_ != 0) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
@@ -143,20 +155,20 @@ Status GroupNorm::ComputeInternal(OpKernelContext* context) const {
   }
 
   const auto& gamma_dims = gamma->Shape().GetDims();
-  if (gamma_dims.size() != 1) {
-    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
-                           "gamma is expected to have 1 dimension, got ", gamma_dims.size());
-  }
+//  if (gamma_dims.size() != 1) {
+//    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+//                           "gamma is expected to have 1 dimension, got ", gamma_dims.size());
+//  }
   if (gamma_dims[0] != num_channels) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
                            "Number of channels in gamma and input does not match");
   }
 
   const auto& beta_dims = beta->Shape().GetDims();
-  if (beta_dims.size() != 1) {
-    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
-                           "beta is expected to have 1 dimension, got ", beta_dims.size());
-  }
+//  if (beta_dims.size() != 1) {
+//    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+//                           "beta is expected to have 1 dimension, got ", beta_dims.size());
+//  }
   if (beta_dims[0] != num_channels) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
                            "Number of channels in beta and input does not match");
