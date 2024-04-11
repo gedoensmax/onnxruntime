@@ -138,7 +138,6 @@ Status TransformLayoutForEP(Graph& graph, bool& modified, const IExecutionProvid
     if (ConvertNodeLayout(*node)) {
       // if already transformed then change the domain to kMSInternalNHWCDomain this way the EP
       // knows this op is in the expected format.
-      // TODO revert kMSInterNHWC for group norm as this here is already fixing it
       if (node->GetAttributeIntDefault("channels_last", 0) == 1) {
         SwapNodeOpTypeAndDomain(*api_graph, *node, node->OpType(), kMSInternalNHWCDomain);
         // Changing the domain for the node requires creating a new node and replacing the old one

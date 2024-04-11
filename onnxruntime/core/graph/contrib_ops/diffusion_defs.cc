@@ -68,41 +68,6 @@ ONNX_MS_OPERATOR_SET_SCHEMA(
         .TypeConstraint("M", {"tensor(float16)", "tensor(float)"}, "Constrain gamma and beta to float tensors.")
         .TypeAndShapeInferenceFunction(ONNX_NAMESPACE::propagateShapeAndTypeFromFirstInput));
 
-ONNX_OPERATOR_SET_SCHEMA_EX(GroupNormNhwc, Microsoft, ::onnxruntime::kMSInternalNHWCDomain, 1, true, OpSchema()
-        .SetDomain(kMSInternalNHWCDomain)
-        .SetDoc(GroupNorm_ver1_doc)
-        .Attr("epsilon", "The epsilon value to use to avoid division by zero", AttributeProto::FLOAT, static_cast<float>(1e-5))
-        .Attr("groups",
-              "The number of groups of channels. It should be a divisor of the number of channels C",
-              AttributeProto::INT)
-        .Attr("activation",
-              "Activation after group normalization: 0 for None, 1 for SiLU",
-              AttributeProto::INT)
-        .Attr("channels_last",
-              "1 if the input and output are in the NHWC layout, 0 if it is in the NCHW layout. Defaults to 1.",
-              AttributeProto::INT,
-              static_cast<int64_t>(1))
-        .Input(0,
-               "X",
-               "Input data tensor. Dimensions are (N x H x W x C) when channels_last is 1 or (N x C x H x W) otherwise, where N is the batch size, C is the number of channels, and H and W are the height and width of the data",
-               "T")
-        .Input(1,
-               "gamma",
-               "1D gamma tensor for normalization with shape (C), where C is number of channels",
-               "M")
-        .Input(2,
-               "beta",
-               "1D beta tensor for normalization  with shape (C), where C is number of channels",
-               "M")
-        .Output(0,
-                "Y",
-                "The output tensor of the same shape as X",
-                "T")
-        .TypeConstraint("T", {"tensor(float16)", "tensor(float)"}, "Constrain input X and output Y types to float tensors.")
-        .TypeConstraint("M", {"tensor(float16)", "tensor(float)"}, "Constrain gamma and beta to float tensors.")
-        .TypeAndShapeInferenceFunction(ONNX_NAMESPACE::propagateShapeAndTypeFromFirstInput));
-
-
 constexpr const char* SkipGroupNorm_ver1_doc = R"DOC(
 This operator element-wise adds x, skip and bias, then apply group normalization and optional activation.
 

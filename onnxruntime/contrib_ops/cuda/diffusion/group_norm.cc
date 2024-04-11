@@ -15,10 +15,6 @@ ONNX_OPERATOR_KERNEL_EX(
     (*KernelDefBuilder::Create()).TypeConstraint("T", BuildKernelDefConstraints<GROUP_NORM_TYPES>()), GroupNorm);
 
 ONNX_OPERATOR_KERNEL_EX(
-    GroupNormNhwc, kMSInternalNHWCDomain, 1, kCudaExecutionProvider,
-    (*KernelDefBuilder::Create()).TypeConstraint("T", BuildKernelDefConstraints<GROUP_NORM_TYPES>()), GroupNorm);
-
-ONNX_OPERATOR_KERNEL_EX(
     SkipGroupNorm, kMSDomain, 1, kCudaExecutionProvider,
     (*KernelDefBuilder::Create()).TypeConstraint("T", BuildKernelDefConstraints<GROUP_NORM_TYPES>()), GroupNorm);
 
