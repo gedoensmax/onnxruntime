@@ -1,0 +1,121 @@
+include: 'windows-deps.yml'
+
+stages:
+  - build
+  - test
+
+deps_windows:
+  timeout: 2h
+  stage: build
+  tags:
+    - os/windows
+    - vs2022
+    - cpp
+    - cuda
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+      when: always
+#      changes:
+#        - "windows-deps.yml"
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: always
+    - when: never
+  script:
+    - >
+      if (Test-Path $CI_BUILDS_DIR\cudnn) {
+        Remove-Item $CI_BUILDS_DIR\cudnn  -r -force
+      }
+    - >
+      if (Test-Path $CI_BUILDS_DIR\trt) {
+        Remove-Item $CI_BUILDS_DIR\trt  -r -force
+      }
+    - $wc = New-Object net.webclient
+    - $wc.Downloadfile($TRT_URL_WIN, "$PWD\trt.zip")
+    - $wc.Downloadfile($CUDNN_URL_WIN, "$PWD\cudnn.zip")
+    - Expand-Archive .\cudnn.zip -DestinationPath .\ -Force
+    - Expand-Archive .\trt.zip -DestinationPath .\ -Force
+    - move .\cudnn $CI_BUILDS_DIR\cudnn
+    - move .\TensorRT* $CI_BUILDS_DIR\trt
+
+build_windows:
+  timeout: 3h
+  stage: build
+  needs: [deps_windows]
+  tags:
+    - os/windows
+    - cpp
+    - cuda
+  variables:
+    BUILD_TYPE: "Release"
+    CUDA_PATH: "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.3/"
+    ErrorActionPreference: "Stop"
+    CCACHE_DIR: "$CI_BUILDS_DIR/ccache"
+  script:
+    - python -m pip install psutil
+    - $threads = $env:NUMBER_OF_PROCESSORS-2
+    - $env:Path += "$CI_BUILDS_DIR\cudnn\bin;$CI_BUILDS_DIR\trt\lib;" + $env:Path
+    - >
+      & "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/Tools/Launch-VsDevShell.ps1" -Arch amd64
+    - >
+      & .\build.bat --build_dir build --config $BUILD_TYPE --build_shared_lib
+      --parallel $threads --skip_submodule_sync --skip_winml_tests --skip_tests
+      --use_dml --use_cuda --use_cache --use_winml --enable_wcos --enable_cuda_profiling --enable_nvtx_profile
+      --cmake_extra_defines CMAKE_INSTALL_PREFIX="$PWD/install/$BUILD_TYPE" onnxruntime_USE_CUDA_NHWC_OPS=ON onnxruntime_BUILD_UNIT_TESTS=ON
+      --cuda_home "$CUDA_PATH"
+      --cudnn_home "$CI_BUILDS_DIR/cudnn" --cmake_generator "Ninja"
+      --use_tensorrt --tensorrt_home "$CI_BUILDS_DIR/trt"
+    - cmake --install build/$BUILD_TYPE --config $BUILD_TYPE
+    # additional ORT binaries
+    - Copy-Item build/$BUILD_TYPE/onnxruntime_perf_test.exe -Destination $PWD/install/$BUILD_TYPE/bin
+    - Copy-Item build/$BUILD_TYPE/DirectML* -Destination $PWD/install/$BUILD_TYPE/bin
+    # additional dependencies for CUDA and TRT
+    - Copy-Item $CI_BUILDS_DIR/cudnn/bin/* -Filter *.dll -Destination $PWD/install/$BUILD_TYPE/bin
+    - Copy-Item $CI_BUILDS_DIR/trt/lib/* -Filter *.dll -Destination $PWD/install/$BUILD_TYPE/bin
+    - Copy-Item "$CUDA_PATH/bin/cudart*" -Filter *.dll -Destination $PWD/install/$BUILD_TYPE/bin
+    - Copy-Item "$CUDA_PATH/bin/cublas*" -Filter *.dll -Destination $PWD/install/$BUILD_TYPE/bin
+    - Copy-Item "$CUDA_PATH/extras/CUPTI/lib64/cupti*" -Filter *.dll -Destination $PWD/install/$BUILD_TYPE/bin
+    - Copy-Item "$CUDA_PATH/bin/cufft*" -Filter *.dll -Destination $PWD/install/$BUILD_TYPE/bin
+    # move all dll's in lib folder to bin
+    - Move-Item "$PWD/install/$BUILD_TYPE/lib/*" -Filter *.dll -Destination $PWD/install/$BUILD_TYPE/bin
+  artifacts:
+    name: "Windows/$BUILD_TYPE"
+    expose_as: 'windows'
+    paths:
+      - install
+
+build_linux:
+  timeout: 3h
+  stage: build
+  image: nvcr.io/nvidia/tensorrt:24.03-py3
+  tags:
+    - os/linux
+    - type/docker
+  variables:
+    BUILD_TYPE: "RelWithDebInfo"
+    CCACHE_DIR: "/cache/ccache"
+  script:
+    - export DEBIAN_FRONTEND=noninteractive
+    - apt update && apt install -y wget ninja-build python3 python3-pip git ccache
+    - apt remove -y cmake
+    - python3 -m pip install numpy psutil
+    - wget -q -O cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v3.27.0/cmake-3.27.0-linux-x86_64.tar.gz
+    - tar xf cmake.tar.gz
+    - export PATH=$PWD/cmake-3.27.0-linux-x86_64/bin/:$PATH
+    - ./build.sh --build_dir build --config $BUILD_TYPE --build_shared_lib  --update --build
+      --parallel --skip_submodule_sync --enable_cuda_profiling --enable_nvtx_profile
+      --cmake_extra_defines onnxruntime_BUILD_UNIT_TESTS=ON onnxruntime_USE_CUDA_NHWC_OPS=ON CMAKE_INSTALL_PREFIX="$PWD\install"
+      --use_cuda --use_tensorrt
+      --cuda_home=/usr/local/cuda --cudnn_home=/usr/local/cuda --tensorrt_home=/usr/local/cuda
+      --use_cache --cmake_generator "Ninja" --allow_running_as_root
+    # - ./build.sh --build_dir build --config $BUILD_TYPE --build_shared_lib  --test
+    #   --parallel $threads --skip_submodule_sync --enable_cuda_profiling --enable_nvtx_profile
+    #   --cmake_extra_defines onnxruntime_BUILD_UNIT_TESTS=ON onnxruntime_USE_CUDA_NHWC_OPS=ON CMAKE_INSTALL_PREFIX="$PWD\install"
+    #   --use_cuda --use_tensorrt
+    #   --cuda_home=/usr/local/cuda --cudnn_home=/usr/local/cuda --tensorrt_home=/usr/local/cuda
+    #   --use_cache --cmake_generator "Ninja" --allow_running_as_root
+    - cmake --install build/$BUILD_TYPE --config $BUILD_TYPE
+    - cp ./build/$BUILD_TYPE/onnxruntime_perf_test ./install/bin
+  artifacts:
+    expose_as: 'linux'
+    paths:
+      - install

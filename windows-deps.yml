@@ -1,0 +1,3 @@
+variables:
+  CUDNN_URL_WIN: "https://urm.nvidia.com/artifactory/hw-cudnn-generic/CUDNN/v9.1_cuda_12.4/9.1.0.43/cudnn-windows-x86_64-9.1.0.43.zip"
+  TRT_URL_WIN: "http://cuda-repo/release-candidates/Libraries/TensorRT/v10.0/10.0.0.6-80c0526b/12.4-r550/Windows10-x64/zip/TensorRT-10.0.0.6.Windows10.win10.cuda-12.4.zip"
