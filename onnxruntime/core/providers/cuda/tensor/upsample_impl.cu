@@ -147,16 +147,16 @@ __global__ void _UpampleBilinear2DInputKernel(const int64_t input_dim0,
 }
 
 template <typename T>
-void UpampleImpl(cudaStream_t stream,
-                 const onnxruntime::UpsampleMode upsample_mode,
-                 const size_t rank,
-                 const int64_t input_dim2,
-                 const TArray<int64_t>& input_pitches,
-                 const TArray<fast_divmod>& output_div_pitches,
-                 const TArray<fast_divmod>& scales_div,
-                 const T* input_data,
-                 T* output_data,
-                 const size_t N) {
+void UpsampleImpl(cudaStream_t stream,
+                  const onnxruntime::UpsampleMode upsample_mode,
+                  const size_t rank,
+                  const int64_t input_dim2,
+                  const TArray<int64_t>& input_pitches,
+                  const TArray<fast_divmod>& output_div_pitches,
+                  const TArray<fast_divmod>& scales_div,
+                  const T* input_data,
+                  T* output_data,
+                  const size_t N) {
   int blocksPerGrid = (int)(ceil(static_cast<float>(N) / GridDim::maxThreadsPerBlock));
   if (onnxruntime::UpsampleMode::NN == upsample_mode) {
     if (rank == 4) {
@@ -197,23 +197,24 @@ void UpampleImpl(cudaStream_t stream,
   }
 }
 
-#define SPECIALIZED_IMPL(T)                                                   \
-  template void UpampleImpl<T>(cudaStream_t stream,                           \
-                               const onnxruntime::UpsampleMode upsample_mode, \
-                               const size_t rank,                             \
-                               const int64_t input_dim2,                      \
-                               const TArray<int64_t>& input_pitches,          \
-                               const TArray<fast_divmod>& output_div_pitches, \
-                               const TArray<fast_divmod>& scales_div,         \
-                               const T* input_data,                           \
-                               T* output_data,                                \
-                               const size_t N);
+#define SPECIALIZED_IMPL(T)                                                    \
+  template void UpsampleImpl<T>(cudaStream_t stream,                           \
+                                const onnxruntime::UpsampleMode upsample_mode, \
+                                const size_t rank,                             \
+                                const int64_t input_dim2,                      \
+                                const TArray<int64_t>& input_pitches,          \
+                                const TArray<fast_divmod>& output_div_pitches, \
+                                const TArray<fast_divmod>& scales_div,         \
+                                const T* input_data,                           \
+                                T* output_data,                                \
+                                const size_t N);
 
 SPECIALIZED_IMPL(float)
 SPECIALIZED_IMPL(double)
 SPECIALIZED_IMPL(half)
 SPECIALIZED_IMPL(int32_t)
 SPECIALIZED_IMPL(uint8_t)
+SPECIALIZED_IMPL(int8_t)
 
 }  // namespace cuda
 }  // namespace onnxruntime

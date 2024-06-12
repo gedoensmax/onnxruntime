@@ -175,7 +175,7 @@ struct NumericLimits<double> {
 constexpr bool LAYOUT_NCHW = false;
 constexpr bool LAYOUT_NHWC = true;
 
-template <bool IsNHWC>
+template <bool layout, int rank = 2>
 struct Channels;
 
 template <>
@@ -192,6 +192,25 @@ struct Channels<LAYOUT_NCHW> {
   static constexpr size_t C = 1;
   static constexpr size_t H = 2;
   static constexpr size_t W = 3;
+};
+
+template <>
+struct Channels<LAYOUT_NHWC, 3> {
+  static constexpr size_t N = 0;
+  static constexpr size_t D = 1;
+  static constexpr size_t H = 2;
+  static constexpr size_t W = 3;
+  static constexpr size_t C = 4;
+
+};
+
+template <>
+struct Channels<LAYOUT_NCHW, 3> {
+  static constexpr size_t N = 0;
+  static constexpr size_t C = 1;
+  static constexpr size_t D = 2;
+  static constexpr size_t H = 3;
+  static constexpr size_t W = 4;
 };
 
 }  // namespace cuda

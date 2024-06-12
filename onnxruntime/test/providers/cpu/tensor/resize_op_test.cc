@@ -100,11 +100,10 @@ TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_tf_crop_and_resize_with_extr
                           10.0f, 10.0f, 10.0f};
 
   test.AddOutput<float>("Y", {N, static_cast<int64_t>(H * scales[1]), static_cast<int64_t>(W * scales[2]), C}, Y);
-  // CUDA: result mismatch due to not implementing NHWC support
   // TensorRT: results mismatch
   // ROCm: results mismatch
   test.Run(OpTester::ExpectResult::kExpectSuccess, "",
-           {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kTensorrtExecutionProvider, kRocmExecutionProvider});
+           {kTensorrtExecutionProvider, kRocmExecutionProvider});
 }
 
 TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_tf_crop_and_resize_with_extrapolation_uint8) {
@@ -132,10 +131,9 @@ TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_tf_crop_and_resize_with_extr
                             10, 10, 10};
 
   test.AddOutput<uint8_t>("Y", {N, static_cast<int64_t>(H * scales[1]), static_cast<int64_t>(W * scales[2]), C}, Y);
-  // CUDA: result mismatch due to not implementing NHWC support
   // ROCm: results mismatch
   test.Run(OpTester::ExpectResult::kExpectSuccess, "",
-           {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider});
+           {kRocmExecutionProvider});
 }
 
 TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_tf_crop_and_resize_with_extrapolation_int8) {
@@ -195,7 +193,7 @@ TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_tf_crop_and_resize_without_e
   // DML: results mismatch
   test.Run(
       OpTester::ExpectResult::kExpectSuccess, "",
-      {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider, kDmlExecutionProvider});
+      {kRocmExecutionProvider, kDmlExecutionProvider});
 }
 
 TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_tf_crop_and_resize_without_extrapolation_int8) {
@@ -270,10 +268,9 @@ TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_4DBilinear) {
   std::vector<float> Y = {2.66666651f, 4.3333331f};
 
   test.AddOutput<float>("Y", {N, static_cast<int64_t>(H * scales[1]), static_cast<int64_t>(W * scales[2]), C}, Y);
-  // CUDA: result mismatch due to not implementing NHWC support
   // ROCm: results mismatch
   // TRT: Segmentation fault in A100
-  std::unordered_set<std::string> excluded_providers({kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider});
+  std::unordered_set<std::string> excluded_providers({kRocmExecutionProvider});
   test.Run(OpTester::ExpectResult::kExpectSuccess, "", ExcludeTrtOnA100(excluded_providers));
 }
 
@@ -296,10 +293,9 @@ TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_4DBilinear_uint8) {
   std::vector<uint8_t> Y = {2, 4};
 
   test.AddOutput<uint8_t>("Y", {N, static_cast<int64_t>(H * scales[1]), static_cast<int64_t>(W * scales[2]), C}, Y);
-  // CUDA: result mismatch due to not implementing NHWC support
   // ROCm: results mismatch
   test.Run(OpTester::ExpectResult::kExpectSuccess, "",
-           {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider});
+           {kRocmExecutionProvider});
 }
 
 TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_4DBilinear_int8) {
@@ -445,10 +441,9 @@ TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_4DBilinear_align_corners_uin
     std::vector<uint8_t> Y = {1, 4};
 
     test.AddOutput<uint8_t>("Y", {N, static_cast<int64_t>(H * scales[1]), static_cast<int64_t>(W * scales[2]), C}, Y);
-    // CUDA: result mismatch due to not implementing NHWC support
     // ROCm: results mismatch
     test.Run(OpTester::ExpectResult::kExpectSuccess, "",
-             {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider});
+             {kRocmExecutionProvider});
   };
 
   run_test(false);
@@ -544,11 +539,10 @@ TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_4DBilinear_pytorch_half_pixe
   std::vector<uint8_t> Y = {1, 7, 12};
 
   test.AddOutput<uint8_t>("Y", {N, sizes[1], sizes[2], C}, Y);
-  // CUDA: result mismatch due to not implementing NHWC support
   // ROCm: results mismatch
   // DML: results mismatch
   test.Run(OpTester::ExpectResult::kExpectSuccess, "",
-           {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider, kDmlExecutionProvider});
+           {kRocmExecutionProvider, kDmlExecutionProvider});
 }
 
 TEST(ResizeOpTest, NhwcResizeOpLinearDownSampleTest_4DBilinear_pytorch_half_pixel_int8) {
@@ -660,7 +654,7 @@ TEST(ResizeOpTest, NhwcResizeOpLinearUpSampleTest_4DBilinear_asymmetric_uint8) {
     // CUDA: result mismatch due to not implementing NHWC support
     // ROCm: results mismatch
     test.Run(OpTester::ExpectResult::kExpectSuccess, "",
-             {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider});
+             {kRocmExecutionProvider});
   };
 
   run_test(false);
@@ -983,7 +977,7 @@ TEST(ResizeOpTest, ResizeOpNearestDownSample5dTest_tf_crop_and_resize_with_extra
 
   test.AddOutput<float>("Y", {1, N, C, static_cast<int64_t>(H * scales[3]), static_cast<int64_t>(W * scales[4])}, Y);
   // Current cuda provider do not support more than 4d
-  test.Run(OpTester::ExpectResult::kExpectSuccess, "", {kCudaExecutionProvider});
+  test.Run(OpTester::ExpectResult::kExpectSuccess, "", {kCudaExecutionProvider, kCudaNHWCExecutionProvider});
 }
 
 TEST(ResizeOpTest, ResizeOpNearestUpSampleTest) {
@@ -1065,7 +1059,7 @@ TEST(ResizeOpTest, ResizeOpNearestUpSample5dTest_WithSizes_CeilMode) {
 
   test.AddOutput<float>("Y", {1, N, C, sizes[3], sizes[4]}, Y);
   // Current cuda provider do not support more than 4d
-  test.Run(OpTester::ExpectResult::kExpectSuccess, "", {kCudaExecutionProvider});
+  test.Run(OpTester::ExpectResult::kExpectSuccess, "", {kCudaExecutionProvider, kCudaNHWCExecutionProvider});
 }
 
 TEST(ResizeOpTest, ResizeOpNearestUpSample_Floor_Align_Corners) {
@@ -1760,7 +1754,7 @@ TEST(ResizeOpTest, ResizeOpTypeCheck_Ver_10) {
 }
 
 template <typename T>
-void ResizeOpTypeCheck_Ver_11_13_18(int opset_version) {
+void ResizeOpTypeCheck_Ver_11_13_18_nearest(int opset_version) {
   OpTester test("Resize", opset_version);
   std::vector<float> roi{};
   std::vector<float> scales{1.0f, 1.0f, 2.0f, 3.0f};
@@ -1783,25 +1777,128 @@ void ResizeOpTypeCheck_Ver_11_13_18(int opset_version) {
   test.Run(OpTester::ExpectResult::kExpectSuccess, "", ExcludeTrtOnA100());
 }
 
-TEST(ResizeOpTest, ResizeOpTypeCheck_Ver11) {
-  ResizeOpTypeCheck_Ver_11_13_18<float>(11);
-  ResizeOpTypeCheck_Ver_11_13_18<int32_t>(11);
-  ResizeOpTypeCheck_Ver_11_13_18<int8_t>(11);
-  ResizeOpTypeCheck_Ver_11_13_18<uint8_t>(11);
+template <>
+void ResizeOpTypeCheck_Ver_11_13_18_nearest<MLFloat16>(int opset_version) {
+  OpTester test("Resize", opset_version);
+  std::vector<float> roi{};
+  std::vector<float> scales{1.0f, 1.0f, 2.0f, 3.0f};
+
+  test.AddAttribute("mode", "nearest");
+
+  constexpr int64_t N = 1, C = 1, H = 2, W = 2;
+  std::vector<MLFloat16> X = FloatsToMLFloat16s({1, 2, 3, 4});
+
+  test.AddInput<MLFloat16>("X", {N, C, H, W}, X);
+  test.AddInput<float>("roi", {0}, roi);
+  test.AddInput<float>("scales", {4}, scales);
+
+  std::vector<MLFloat16> Y = FloatsToMLFloat16s({1, 1, 1, 2, 2, 2,
+                                                 1, 1, 1, 2, 2, 2,
+                                                 3, 3, 3, 4, 4, 4,
+                                                 3, 3, 3, 4, 4, 4});
+
+  test.AddOutput<MLFloat16>("Y", {N, C, static_cast<int64_t>(H * scales[2]), static_cast<int64_t>(W * scales[3])}, Y);
+  std::unordered_set<std::string> excluded_providers = {kCpuExecutionProvider};
+  test.Run(OpTester::ExpectResult::kExpectSuccess, "", ExcludeTrtOnA100(excluded_providers));
 }
 
-TEST(ResizeOpTest, ResizeOpTypeCheck_Ver13) {
-  ResizeOpTypeCheck_Ver_11_13_18<float>(13);
-  ResizeOpTypeCheck_Ver_11_13_18<int32_t>(13);
-  ResizeOpTypeCheck_Ver_11_13_18<int8_t>(13);
-  ResizeOpTypeCheck_Ver_11_13_18<uint8_t>(13);
+TEST(ResizeOpTest, ResizeOpTypeCheck_Ver11_nearest) {
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<float>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<MLFloat16>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<int32_t>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<int8_t>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<uint8_t>(11);
 }
 
-TEST(ResizeOpTest, ResizeOpTypeCheck_Ver18) {
-  ResizeOpTypeCheck_Ver_11_13_18<float>(18);
-  ResizeOpTypeCheck_Ver_11_13_18<int32_t>(18);
-  ResizeOpTypeCheck_Ver_11_13_18<int8_t>(18);
-  ResizeOpTypeCheck_Ver_11_13_18<uint8_t>(18);
+TEST(ResizeOpTest, ResizeOpTypeCheck_Ver13_nearest) {
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<float>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<MLFloat16>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<int32_t>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<int8_t>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<uint8_t>(13);
+}
+
+TEST(ResizeOpTest, ResizeOpTypeCheck_Ver18_nearest) {
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<float>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<MLFloat16>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<int32_t>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<int8_t>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_nearest<uint8_t>(18);
+}
+
+
+// these added linear mode test can test the math used in bilinear mode it is safe then checking
+template <typename T>
+void ResizeOpTypeCheck_Ver_11_13_18_linear(int opset_version) {
+  OpTester test("Resize", opset_version);
+  std::vector<float> roi{};
+  std::vector<float> scales{1.0f, 1.0f, 0.6f, 0.6f};
+
+  test.AddAttribute("mode", "linear");
+
+  constexpr int64_t N = 1, H = 2, W = 4, C = 1;
+  std::vector<T> X = {
+      1, 2, 3, 4,
+      5, 6, 7, 8};
+
+  test.AddInput<T>("X", {N, C, H, W}, X);
+  test.AddInput<float>("roi", {0}, roi);
+  test.AddInput<float>("scales", {4}, scales);
+
+  std::vector<T> Y = {static_cast<T>(2.66666651f), static_cast<T>(4.3333331f)};
+  test.AddOutput<T>("Y", {N, C, static_cast<int64_t>(H * scales[2]), static_cast<int64_t>(W * scales[3])}, Y);
+
+  // ROCm: results mismatch
+  test.Run(OpTester::ExpectResult::kExpectSuccess, "",
+           {kRocmExecutionProvider});
+}
+
+template <>
+void ResizeOpTypeCheck_Ver_11_13_18_linear<MLFloat16>(int opset_version) {
+  OpTester test("Resize", opset_version);
+  std::vector<float> roi{};
+  std::vector<float> scales{1.0f, 1.0f, 0.6f, 0.6f};
+
+  test.AddAttribute("mode", "linear");
+
+  constexpr int64_t N = 1, H = 2, W = 4, C = 1;
+  std::vector<MLFloat16> X = FloatsToMLFloat16s({1, 2, 3, 4,
+                                                 5, 6, 7, 8});
+
+  test.AddInput<MLFloat16>("X", {N, C, H, W}, X);
+  test.AddInput<float>("roi", {0}, roi);
+  test.AddInput<float>("scales", {4}, scales);
+
+  std::vector<MLFloat16> Y = FloatsToMLFloat16s({2.66666651f, 4.3333331f});
+  test.AddOutput<MLFloat16>("Y", {N, C, static_cast<int64_t>(H * scales[2]), static_cast<int64_t>(W * scales[3])}, Y);
+
+  // ROCm: results mismatch
+  std::unordered_set<std::string> excluded_providers = {kRocmExecutionProvider, kCpuExecutionProvider};
+  test.Run(OpTester::ExpectResult::kExpectSuccess, "", ExcludeTrtOnA100(excluded_providers));
+}
+
+TEST(ResizeOpTest, ResizeOpTypeCheck_Ver11_linear) {
+  ResizeOpTypeCheck_Ver_11_13_18_linear<float>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<MLFloat16>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<int32_t>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<int8_t>(11);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<uint8_t>(11);
+}
+
+TEST(ResizeOpTest, ResizeOpTypeCheck_Ver13_linear) {
+  ResizeOpTypeCheck_Ver_11_13_18_linear<float>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<MLFloat16>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<int32_t>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<int8_t>(13);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<uint8_t>(13);
+}
+
+TEST(ResizeOpTest, ResizeOpTypeCheck_Ver18_linear) {
+  ResizeOpTypeCheck_Ver_11_13_18_linear<float>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<MLFloat16>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<int32_t>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<int8_t>(18);
+  ResizeOpTypeCheck_Ver_11_13_18_linear<uint8_t>(18);
 }
 
 TEST(ResizeOpTest, ResizeOpHalfPixelSymmetricDownSample_ver19) {
@@ -1820,7 +1917,8 @@ TEST(ResizeOpTest, ResizeOpHalfPixelSymmetricDownSample_ver19) {
   std::vector<float> Y = {1.666667f, 3.333333f};
 
   test.AddOutput<float>("Y", {N, C, static_cast<int64_t>(H * scales[2]), static_cast<int64_t>(W * scales[3])}, Y);
-  test.Run();
+  test.Run(OpTester::ExpectResult::kExpectSuccess, "",
+           {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider});
 }
 
 TEST(ResizeOpTest, ResizeOpHalfPixelSymmetricUpSample_ver19) {
@@ -1843,7 +1941,8 @@ TEST(ResizeOpTest, ResizeOpHalfPixelSymmetricUpSample_ver19) {
                           3.0f, 3.159864f, 3.5f, 3.840136f, 4.0f};
 
   test.AddOutput<float>("Y", {N, C, static_cast<int64_t>(H * scales[2]), static_cast<int64_t>(W * scales[3])}, Y);
-  test.Run();
+  test.Run(OpTester::ExpectResult::kExpectSuccess, "",
+           {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider});
 }
 
 /*
@@ -1980,7 +2079,7 @@ TEST(ResizeOpTest, Antialias_Bilinear_dtype) {
     std::vector<int8_t> Y = {1, 3, 4,
                              6, 8, 9,
                              11, 13, 14};
-    InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider};
+    InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kCudaNHWCExecutionProvider};
     TestAntialiasing({{"mode", "linear"}, {"exclude_outside", "1"}}, {1, 1, 4, 4}, X, {1, 1, 3, 3}, Y, excluded_eps);
   }
   {
@@ -2025,13 +2124,14 @@ TEST(ResizeOpTest, Antialias_NhwcBilinear) {
                           35.074074f, 75.07407f, 115.07407f,
                           36.590908f, 76.59091f, 116.59091f};
 
-  // Nchw is not supported by CUDA Resize implementation
-  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kRocmExecutionProvider};
+  // Nhwc is not supported by CUDA Resize implementation
+  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider};
   TestAntialiasing({{"mode", "linear"}, {"exclude_outside", "1"}}, {1, 5, 8, 3}, X, {1, 4, 5, 3}, Y, excluded_eps);
 }
 
 TEST(ResizeOpTest, Antialias_NhwcBilinear_dtype) {
-  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kRocmExecutionProvider};
+  // Nhwc is not supported by CUDA Resize implementation
+  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider};
   {
     std::vector<uint8_t> X(16);
     std::iota(X.begin(), X.end(), uint8_t(0));
@@ -2089,7 +2189,7 @@ TEST(ResizeOpTest, Antialias_Trilinear_Scale_Is_11s_and_1s1) {
                  << " is slightly different and doesn't match in all cases.";
   }
 
-  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider};
+  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kCudaNHWCExecutionProvider};
   std::vector<float> X(16 * 4 * 4);
   std::iota(X.begin(), X.end(), 0.f);
   {
@@ -2178,7 +2278,8 @@ TEST(ResizeOpTest, Antialias_NHWCBicubic_ExcludeOutside) {
       46.606194f, 19.878183f, 43.87818f, 21.358122f, 45.35812f,
       22.907503f, 46.907505f, 24.387442f, 48.387444f};
 
-  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kRocmExecutionProvider};
+  // Nhwc is not supported by CUDA Resize implementation
+  InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kCudaNHWCExecutionProvider, kRocmExecutionProvider};
   TestAntialiasing({{"mode", "cubic"}, {"exclude_outside", "0"}}, {1, 4, 6, 2}, X, {1, 8, 4, 2}, Y, excluded_eps);
 }
 
@@ -2260,7 +2361,7 @@ TEST(ResizeOpTest, Antialias_Bicubic_Dtype) {
     std::vector<int8_t> X(36);
     std::iota(X.begin(), X.end(), int8_t(0));
     std::vector<int8_t> Y = {4, 6, 7, 16, 18, 19, 28, 30, 31};
-    InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider};
+    InlinedVector<std::string_view> excluded_eps = {kCudaExecutionProvider, kCudaNHWCExecutionProvider};
     TestAntialiasing({{"mode", "cubic"}, {"cubic_coeff_a", "-0.5f"}, {"exclude_outside", "1"}}, {1, 1, 6, 6},
                      X, {1, 1, 3, 3}, Y, excluded_eps);
   }

@@ -5,10 +5,10 @@
 
 namespace onnxruntime {
 namespace cuda {
-#define REGISTER_KERNEL_TYPED(T)                                   \
+#define REGISTER_KERNEL_TYPED(T, DOMAIN)                           \
   ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(                         \
       Resize,                                                      \
-      kOnnxDomain,                                                 \
+      DOMAIN,                                                      \
       10, 10,                                                      \
       T,                                                           \
       kCudaExecutionProvider,                                      \
@@ -18,7 +18,7 @@ namespace cuda {
       Resize<T>);                                                  \
   ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(                         \
       Resize,                                                      \
-      kOnnxDomain,                                                 \
+      DOMAIN,                                                      \
       11, 12,                                                      \
       T,                                                           \
       kCudaExecutionProvider,                                      \
@@ -30,7 +30,7 @@ namespace cuda {
       Resize<T>);                                                  \
   ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(                         \
       Resize,                                                      \
-      kOnnxDomain,                                                 \
+      DOMAIN,                                                      \
       13, 17,                                                      \
       T,                                                           \
       kCudaExecutionProvider,                                      \
@@ -42,7 +42,7 @@ namespace cuda {
       Resize<T>);                                                  \
   ONNX_OPERATOR_TYPED_KERNEL_EX(                                   \
       Resize,                                                      \
-      kOnnxDomain,                                                 \
+      DOMAIN,                                                      \
       18,                                                          \
       T,                                                           \
       kCudaExecutionProvider,                                      \
@@ -53,11 +53,21 @@ namespace cuda {
           .TypeConstraint("T1", DataTypeImpl::GetTensorType<T>()), \
       Resize<T>);
 
-REGISTER_KERNEL_TYPED(float)
-REGISTER_KERNEL_TYPED(double)
-REGISTER_KERNEL_TYPED(MLFloat16)
-REGISTER_KERNEL_TYPED(int32_t)
-REGISTER_KERNEL_TYPED(uint8_t)
+REGISTER_KERNEL_TYPED(float, kOnnxDomain)
+REGISTER_KERNEL_TYPED(double, kOnnxDomain)
+REGISTER_KERNEL_TYPED(MLFloat16, kOnnxDomain)
+REGISTER_KERNEL_TYPED(int32_t, kOnnxDomain)
+REGISTER_KERNEL_TYPED(int8_t, kOnnxDomain)
+REGISTER_KERNEL_TYPED(uint8_t, kOnnxDomain)
+
+#ifdef ENABLE_CUDA_NHWC_OPS
+REGISTER_KERNEL_TYPED(float, kMSInternalNHWCDomain)
+REGISTER_KERNEL_TYPED(double, kMSInternalNHWCDomain)
+REGISTER_KERNEL_TYPED(MLFloat16, kMSInternalNHWCDomain)
+REGISTER_KERNEL_TYPED(int32_t, kMSInternalNHWCDomain)
+REGISTER_KERNEL_TYPED(int8_t, kMSInternalNHWCDomain)
+REGISTER_KERNEL_TYPED(uint8_t, kMSInternalNHWCDomain)
+#endif
 
 }  // namespace cuda
 }  // namespace onnxruntime

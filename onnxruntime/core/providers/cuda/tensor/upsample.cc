@@ -40,6 +40,8 @@ REGISTER_VERSIONED_TYPED_KERNEL(MLFloat16, 9, 9);
 REGISTER_VERSIONED_TYPED_KERNEL(int32_t, 9, 9);
 REGISTER_VERSIONED_TYPED_KERNEL(uint8_t, 9, 9);
 
+template class Upsample<int8_t>; // compile int8 to support resize implementation of int8
+
 template <typename T>
 Upsample<T>::Upsample(const OpKernelInfo& info) : UpsampleBase(info), CudaKernel(info) {
   if (UpsampleBase::antialias_) {
@@ -54,9 +56,9 @@ Upsample<T>::Upsample(const OpKernelInfo& info) : UpsampleBase(info), CudaKernel
 
 template <typename T>
 Status Upsample<T>::BaseCompute(OpKernelContext* context,
-                                gsl::span<const float> roi,
-                                gsl::span<const float> scales,
-                                gsl::span<const int64_t> output_dims) const {
+                                      gsl::span<const float> roi,
+                                      gsl::span<const float> scales,
+                                      gsl::span<const int64_t> output_dims) const {
   const Tensor* X = context->Input<Tensor>(0);
   auto X_dims = X->Shape().GetDims();
   int32_t rank = static_cast<int32_t>(X_dims.size());
@@ -152,6 +154,17 @@ Status Upsample<T>::BaseCompute(OpKernelContext* context,
                 width_scale = scales[3];
               } else {
                 return ORT_MAKE_STATUS(ONNXRUNTIME, NOT_IMPLEMENTED, "Resize", ": NHWC is not supported yet");
+
+                batch_size = X_dims[Channels<LAYOUT_NHWC>::N];
+                num_channels = X_dims[Channels<LAYOUT_NHWC>::C];
+                input_height = X_dims[Channels<LAYOUT_NHWC>::H];
+                input_width = X_dims[Channels<LAYOUT_NHWC>::W];
+
+                output_height = output_dims[Channels<LAYOUT_NHWC>::H];
+                output_width = output_dims[Channels<LAYOUT_NHWC>::W];
+
+                height_scale = scales[1];
+                width_scale = scales[2];
               }
             }
 
@@ -290,16 +303,16 @@ Status Upsample<T>::BaseCompute(OpKernelContext* context,
       scales_div[i] = fast_divmod(gsl::narrow_cast<int>(ceil(scales[i])));
     }
 
-    UpampleImpl(Stream(context),
-                mode_,
-                rank,
-                (UpsampleMode::LINEAR == mode_) ? (rank == 2 ? X_dims[0] : X_dims[2]) : 0,
-                input_strides,
-                output_div_pitches,
-                scales_div,
-                reinterpret_cast<const CudaT*>(X->Data<T>()),
-                reinterpret_cast<CudaT*>(Y->MutableData<T>()),
-                output_count);
+    UpsampleImpl(Stream(context),
+                 mode_,
+                 rank,
+                 (UpsampleMode::LINEAR == mode_) ? (rank == 2 ? X_dims[0] : X_dims[2]) : 0,
+                 input_strides,
+                 output_div_pitches,
+                 scales_div,
+                 reinterpret_cast<const CudaT*>(X->Data<T>()),
+                 reinterpret_cast<CudaT*>(Y->MutableData<T>()),
+                 output_count);
   }
 
   return Status::OK();

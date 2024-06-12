@@ -80,6 +80,26 @@ class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(1, 12, MLFloat16, LRN);
 class CUDA_NHWC_OP_TYPED_CLASS_NAME(13, float, LRN);
 class CUDA_NHWC_OP_TYPED_CLASS_NAME(13, double, LRN);
 class CUDA_NHWC_OP_TYPED_CLASS_NAME(13, MLFloat16, LRN);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, float, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, double, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, MLFloat16, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, int32_t, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, uint8_t, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, float, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, double, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, MLFloat16, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, int32_t, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, uint8_t, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, float, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, double, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, MLFloat16, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, int32_t, Resize);
+class CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, uint8_t, Resize);
+class CUDA_NHWC_OP_TYPED_CLASS_NAME(18, float, Resize);
+class CUDA_NHWC_OP_TYPED_CLASS_NAME(18, double, Resize);
+class CUDA_NHWC_OP_TYPED_CLASS_NAME(18, MLFloat16, Resize);
+class CUDA_NHWC_OP_TYPED_CLASS_NAME(18, int32_t, Resize);
+class CUDA_NHWC_OP_TYPED_CLASS_NAME(18, uint8_t, Resize);
 
 Status RegisterCudaNhwcKernels(KernelRegistry& kernel_registry) {
   static const BuildKernelCreateInfoFn nhwc_function_table[] = {
@@ -137,7 +157,26 @@ Status RegisterCudaNhwcKernels(KernelRegistry& kernel_registry) {
       BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(13, float, LRN)>,
       BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(13, double, LRN)>,
       BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(13, MLFloat16, LRN)>,
-  };
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, float, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, double, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, MLFloat16, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, int32_t, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(10, 10, uint8_t, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, float, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, double, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, MLFloat16, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, int32_t, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(11, 12, uint8_t, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, float, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, double, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, MLFloat16, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, int32_t, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_VERSIONED_TYPED_CLASS_NAME(13, 17, uint8_t, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(18, float, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(18, double, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(18, MLFloat16, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(18, int32_t, Resize)>,
+      BuildKernelCreateInfo<CUDA_NHWC_OP_TYPED_CLASS_NAME(18, uint8_t, Resize)>};
 
   for (auto& function_table_entry : nhwc_function_table) {
     KernelCreateInfo info = function_table_entry();

@@ -131,6 +131,7 @@ class UpsampleBase {
   explicit UpsampleBase(const OpKernelInfo& info)
       : scales_cached_(false), roi_cached_(false), use_extrapolation_(false) {
     const auto& node = info.node();
+    is_nhwc_ = node.Domain() == kMSInternalNHWCDomain;
     auto opset = node.SinceVersion();
     is_resize_ = (opset >= 10);
 
@@ -260,6 +261,7 @@ class UpsampleBase {
   bool need_roi_input_;
   bool use_extrapolation_;
   bool is_resize_ = false;
+  bool is_nhwc_ = false;
 
   int roi_input_idx_ = -1;
   int scales_input_idx_ = -1;
@@ -536,8 +538,21 @@ class UpsampleBase {
   void ComputeOutputShape(gsl::span<const float> scales,
                           gsl::span<const int64_t> input_dims,
                           TensorShapeVector& output_dims) const {
-    for (std::size_t i = 0; i < input_dims.size(); i++) {
-      output_dims[i] = static_cast<int64_t>(scales[i] * input_dims[i]);
+    if (is_nhwc_ && (scales.size() == 4 || scales.size() == 5)) {
+      // TODO replace with Channels defines
+      output_dims[0] = static_cast<int64_t>(scales[0] * input_dims[0]);
+      output_dims[1] = static_cast<int64_t>(scales[2] * input_dims[1]);
+      output_dims[2] = static_cast<int64_t>(scales[3] * input_dims[2]);
+      if (scales.size() == 5) {
+        output_dims[3] = static_cast<int64_t>(scales[4] * input_dims[3]);
+        output_dims[4] = static_cast<int64_t>(scales[1] * input_dims[4]);
+      } else {
+        output_dims[3] = static_cast<int64_t>(scales[1] * input_dims[3]);
+      }
+    } else {
+      for (std::size_t i = 0; i < input_dims.size(); i++) {
+        output_dims[i] = static_cast<int64_t>(scales[i] * input_dims[i]);
+      }
     }
   }
 

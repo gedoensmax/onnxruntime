@@ -291,6 +291,16 @@ __global__ void _ResizeBilinearCoordinateMapping(
   }
 }
 
+template <typename T>
+__device__ __forceinline__ T _CalculateBilinearOut(T x00, T x10, T x01, T x11, float x_offset_0, float y_offset_0) {
+  float y_offset_1 = 1.0f - y_offset_0;
+  float x_offset_1 = 1.0f - x_offset_0;
+  return static_cast<T>(
+        static_cast<float>(x00) * (y_offset_1 * x_offset_1) +
+        static_cast<float>(x01) * (y_offset_0 * x_offset_1) +
+        static_cast<float>(x10) * (y_offset_1 * x_offset_0) +
+        static_cast<float>(x11) * (y_offset_0 * x_offset_0));
+}
 // The following method supports a 2-D or 4-D input in 'Linear mode'. Last two dimension is [H, W].
 // the scale values for the outer dimensions except last two are 1.
 template <typename T>
@@ -302,7 +312,8 @@ __global__ void _ResizeBilinearKernel(
     const T extrapolation_value,
     LinearMappingInfo* dims_mapping) {
   CALCULATE_ELEMENTWISE_INDEX_OR_EXIT(id, N);
-  int bxc, output_image_index;
+  int bxc;                 // batch and channel index
+  int output_image_index;  // pixel index regarding to H and W within each channel plane
   div_output_image.divmod(id, bxc, output_image_index);
   CUDA_LONG input_index = bxc * input_height * input_width;
   int output_y, output_x;
@@ -318,20 +329,55 @@ __global__ void _ResizeBilinearKernel(
   int x_int = dims_mapping[output_x + output_height].origin_;
   input_index += y_int * input_width + x_int;
 
-  T x00 = input_data[input_index];
+  // these end_of_.. cases are already handled in the kernels for dims_mapping population
   bool end_of_h = (y_int >= input_height - 1);
   bool end_of_w = (x_int >= input_width - 1);
+  T x00 = input_data[input_index];
   T x10 = end_of_w ? x00 : input_data[input_index + 1];
   T x01 = end_of_h ? x00 : input_data[input_index + input_width];
   T x11 = end_of_w ? x01 : (end_of_h ? x10 : input_data[input_index + input_width + 1]);
 
-  float y_offset_1 = 1.0f - y_offset_0;
-  float x_offset_1 = 1.0f - x_offset_0;
-  output_data[id] =
-      x00 * static_cast<T>(y_offset_1 * x_offset_1) +
-      x01 * static_cast<T>(y_offset_0 * x_offset_1) +
-      x10 * static_cast<T>(y_offset_1 * x_offset_0) +
-      x11 * static_cast<T>(y_offset_0 * x_offset_0);
+  output_data[id] = _CalculateBilinearOut<T>(x00, x10, x01, x11, x_offset_0, y_offset_0);
+}
+
+// The following method supports a 2-D or 4-D input in 'Linear mode'. Last dimension is C.
+// the scale values for C and N are excepted to be 1.
+template <typename T>
+__global__ void _ResizeBilinearKernelNhwc(
+    int64_t input_height, int64_t input_width, int64_t input_channel,
+    int64_t output_height, int64_t output_width,
+    fast_divmod div_output_image, fast_divmod div_output_width, fast_divmod div_output_channel,
+    const T* input_data, T* output_data, const size_t N,
+    const T extrapolation_value,
+    LinearMappingInfo* dims_mapping) {
+  CALCULATE_ELEMENTWISE_INDEX_OR_EXIT(id, N);
+  int b, output_y;
+  int output_image, output_row_pix_index;
+  div_output_image.divmod(id, b, output_image);
+  div_output_width.divmod(output_image, output_y, output_row_pix_index);
+  CUDA_LONG input_index = b * input_height * input_width * input_channel;
+  int output_x, output_c;
+  div_output_channel.divmod(output_row_pix_index, output_x, output_c);
+
+  if (dims_mapping[output_y].extrapolate_ || dims_mapping[output_x + output_height].extrapolate_) {
+    output_data[id] = extrapolation_value;
+    return;
+  }
+  float y_offset_0 = dims_mapping[output_y].weight_;
+  int y_int = dims_mapping[output_y].origin_;
+  float x_offset_0 = dims_mapping[output_x + output_height].weight_;
+  int x_int = dims_mapping[output_x + output_height].origin_;
+  input_index += y_int * input_width * input_channel + x_int + output_c;
+  // these end_of_.. cases are already handled in the kernels for dims_mapping population
+  bool end_of_h = (y_int >= input_height - 1);
+  bool end_of_w = (x_int >= input_width - 1);
+
+  T x00 = input_data[input_index];
+  T x10 = end_of_w ? x00 : input_data[input_index + input_channel];
+  T x01 = end_of_h ? x00 : input_data[input_index + (input_width * input_channel)];
+  T x11 = end_of_w ? x01 : (end_of_h ? x10 : input_data[input_index + ((input_width + 1) * input_channel)]);
+
+  output_data[id] = _CalculateBilinearOut<T>(x00, x10, x01, x11, x_offset_0, y_offset_0);
 }
 
 template <typename T, typename CudaFunctionOriginalCoordinate>
@@ -726,15 +772,37 @@ void ResizeImpl(
 
   int blocksPerGrid = static_cast<int>(ceil(static_cast<float>(N) / GridDim::maxThreadsPerBlock));
   fast_divmod div_output_image;
+  int h_dim_idx, w_dim_idx, d_dim_idx;
+  bool is_c_last = /* NHWC check */ (scales_vals[0] == 1.0f && scales_vals[rank - 1] == 1.0f && rank == 4) ||
+                   /* NDHWC check */ (!(scales_vals[0] == 1.0f && scales_vals[1] == 1.0f) && rank == 5);
   if (is_2D) {
     div_output_image = (rank > 2) ? output_div_pitches[rank - 3] : fast_divmod(gsl::narrow_cast<int>(N));
+    if (is_c_last) {
+      h_dim_idx = Channels<LAYOUT_NHWC>::H;
+      w_dim_idx = Channels<LAYOUT_NHWC>::W;
+    } else {
+      h_dim_idx = rank - 2;
+      w_dim_idx = rank - 1;
+    }
   } else if (is_3D) {
     div_output_image = (rank > 3) ? output_div_pitches[rank - 4] : fast_divmod(gsl::narrow_cast<int>(N));
+    if (is_c_last) {
+      // NDHWC layout
+      h_dim_idx = Channels<LAYOUT_NHWC, 3>::H;
+      w_dim_idx = Channels<LAYOUT_NHWC, 3>::W;
+      d_dim_idx = Channels<LAYOUT_NHWC, 3>::D;
+    } else {
+      h_dim_idx = rank - 2;
+      w_dim_idx = rank - 1;
+      d_dim_idx = rank - 3;
+    }
+  } else {
+    ORT_THROW("Only 2D and 3D resize is supported.");
   }
 
-  int64_t output_depth = is_3D ? output_shape[rank - 3] : 0;
-  int64_t output_height = output_shape[rank - 2];
-  int64_t output_width = output_shape[rank - 1];
+  int64_t output_depth = is_3D ? output_shape[d_dim_idx] : 0;
+  int64_t output_height = output_shape[h_dim_idx];
+  int64_t output_width = output_shape[w_dim_idx];
   int blocksPerDimsMappingGrid =
       static_cast<int>(ceil((output_depth + output_height + output_width) / 32.0));
 
@@ -743,39 +811,53 @@ void ResizeImpl(
       if (is_2D) {
         DISPATCH_RESIZE_COORDINATE_TRANSFORMATION_MODE(coordinate_transform_mode, [&]() {
           _ResizeBilinearCoordinateMapping<T><<<blocksPerDimsMappingGrid, 32, 0, stream>>>(
-              input_shape[rank - 2], input_shape[rank - 1],
+              input_shape[h_dim_idx], input_shape[w_dim_idx],
               output_height, output_width,
-              scales_vals[rank - 2], scales_vals[rank - 1],
-              roi_vals[rank - 2], roi_vals[rank - 2 + rank],
-              roi_vals[rank - 1], roi_vals[rank - 1 + rank],
+              scales_vals[h_dim_idx], scales_vals[w_dim_idx],
+              roi_vals[h_dim_idx], roi_vals[h_dim_idx + rank],
+              roi_vals[w_dim_idx], roi_vals[w_dim_idx + rank],
               output_height + output_width, extrapolation_enabled, coord_t(),
               reinterpret_cast<LinearMappingInfo*>(dims_mapping));
         });
-        _ResizeBilinearKernel<T><<<blocksPerGrid, GridDim::maxThreadsPerBlock, 0, stream>>>(
-            input_shape[rank - 2], input_shape[rank - 1],
-            output_height, output_width,
-            output_div_pitches[rank - 2], div_output_image,
-            input_data, output_data, N, extrapolation_value,
-            reinterpret_cast<LinearMappingInfo*>(dims_mapping));
+        if (is_c_last) {
+          _ResizeBilinearKernelNhwc<T><<<blocksPerGrid, GridDim::maxThreadsPerBlock, 0, stream>>>(
+              input_shape[h_dim_idx], input_shape[w_dim_idx], input_shape[rank - 1],
+              output_height, output_width,
+              output_div_pitches[0], output_div_pitches[h_dim_idx], output_div_pitches[w_dim_idx],
+              input_data, output_data, N, extrapolation_value,
+              reinterpret_cast<LinearMappingInfo*>(dims_mapping));
+        } else {
+          _ResizeBilinearKernel<T><<<blocksPerGrid, GridDim::maxThreadsPerBlock, 0, stream>>>(
+              input_shape[h_dim_idx], input_shape[w_dim_idx],
+              output_height, output_width,
+              output_div_pitches[h_dim_idx], div_output_image,
+              input_data, output_data, N, extrapolation_value,
+              reinterpret_cast<LinearMappingInfo*>(dims_mapping));
+        }
         return;
       } else if (is_3D) {
         DISPATCH_RESIZE_COORDINATE_TRANSFORMATION_MODE(coordinate_transform_mode, [&]() {
           _ResizeTrilinearCoordinateMapping<T><<<blocksPerDimsMappingGrid, 32, 0, stream>>>(
-              input_shape[rank - 3], input_shape[rank - 2], input_shape[rank - 1],
+              input_shape[d_dim_idx], input_shape[h_dim_idx], input_shape[w_dim_idx],
               output_depth, output_height, output_width,
-              scales_vals[rank - 3], scales_vals[rank - 2], scales_vals[rank - 1],
-              roi_vals[rank - 3], roi_vals[rank - 3 + rank],
-              roi_vals[rank - 2], roi_vals[rank - 2 + rank],
-              roi_vals[rank - 1], roi_vals[rank - 1 + rank],
+              scales_vals[d_dim_idx], scales_vals[h_dim_idx], scales_vals[w_dim_idx],
+              roi_vals[d_dim_idx], roi_vals[d_dim_idx + rank],
+              roi_vals[h_dim_idx], roi_vals[h_dim_idx + rank],
+              roi_vals[w_dim_idx], roi_vals[w_dim_idx + rank],
               output_depth + output_height + output_width, extrapolation_enabled, coord_t(),
               reinterpret_cast<LinearMappingInfo*>(dims_mapping));
         });
-        _ResizeTrilinearKernel<T><<<blocksPerGrid, GridDim::maxThreadsPerBlock, 0, stream>>>(
-            input_shape[rank - 3], input_shape[rank - 2], input_shape[rank - 1],
-            output_depth, output_height, output_width,
-            output_div_pitches[rank - 3], output_div_pitches[rank - 2], div_output_image,
-            input_data, output_data, N, extrapolation_value,
-            reinterpret_cast<LinearMappingInfo*>(dims_mapping));
+        if (is_c_last) {
+          ORT_THROW("Resize 3-D NDHWC dimensions in LINEAR mode.");
+//          _ResizeTrilinearKernelNhwc
+        } else {
+          _ResizeTrilinearKernel<T><<<blocksPerGrid, GridDim::maxThreadsPerBlock, 0, stream>>>(
+              input_shape[d_dim_idx], input_shape[h_dim_idx], input_shape[w_dim_idx],
+              output_depth, output_height, output_width,
+              output_div_pitches[d_dim_idx], output_div_pitches[h_dim_idx], div_output_image,
+              input_data, output_data, N, extrapolation_value,
+              reinterpret_cast<LinearMappingInfo*>(dims_mapping));
+        }
         return;
       }
       ORT_THROW("Resize support 2-D and 3-D dimensions in LINEAR mode.");
@@ -784,24 +866,29 @@ void ResizeImpl(
       if (is_2D) {
         DISPATCH_RESIZE_COORDINATE_TRANSFORMATION_MODE(coordinate_transform_mode, [&]() {
           _ResizeCubicCoordinateMapping<T><<<blocksPerDimsMappingGrid, 32, 0, stream>>>(
-              input_shape[rank - 2], input_shape[rank - 1],
+              input_shape[h_dim_idx], input_shape[w_dim_idx],
               output_height, output_width,
-              scales_vals[rank - 2], scales_vals[rank - 1],
-              roi_vals[rank - 2], roi_vals[rank - 2 + rank],
-              roi_vals[rank - 1], roi_vals[rank - 1 + rank],
+              scales_vals[h_dim_idx], scales_vals[w_dim_idx],
+              roi_vals[h_dim_idx], roi_vals[h_dim_idx + rank],
+              roi_vals[w_dim_idx], roi_vals[w_dim_idx + rank],
               output_height + output_width, extrapolation_enabled,
               cubic_coeff_a, exclude_outside, coord_t(),
               reinterpret_cast<CubicMappingInfo*>(dims_mapping));
         });
-        _ResizeBiCubicKernel<T><<<blocksPerGrid, GridDim::maxThreadsPerBlock, 0, stream>>>(
-            input_shape[rank - 2], input_shape[rank - 1],
-            output_height, output_width,
-            output_div_pitches[rank - 2], div_output_image,
-            input_data, output_data, N, extrapolation_value,
-            reinterpret_cast<CubicMappingInfo*>(dims_mapping));
+        if (is_c_last) {
+          ORT_THROW("Resize 3-D NDHWC dimensions in LINEAR mode.");
+//          _ResizeBiCubicKernelNhwc
+        } else {
+          _ResizeBiCubicKernel<T><<<blocksPerGrid, GridDim::maxThreadsPerBlock, 0, stream>>>(
+              input_shape[h_dim_idx], input_shape[w_dim_idx],
+              output_height, output_width,
+              output_div_pitches[h_dim_idx], div_output_image,
+              input_data, output_data, N, extrapolation_value,
+              reinterpret_cast<CubicMappingInfo*>(dims_mapping));
+        }
         return;
       }
-      ORT_THROW("Resize supports only 2-D in CUBIC mode.");
+      ORT_THROW("Resize supports only 2-D NCHW in CUBIC mode.");
     case UpsampleMode::NN:
       ORT_THROW("Only bilinear/trilinear and bicubic modes are supported in Resize");
   }
@@ -834,6 +921,7 @@ SPECIALIZED_IMPL(double)
 SPECIALIZED_IMPL(half)
 SPECIALIZED_IMPL(int32_t)
 SPECIALIZED_IMPL(uint8_t)
+SPECIALIZED_IMPL(int8_t)
 
 }  // namespace cuda
 }  // namespace onnxruntime
