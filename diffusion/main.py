@@ -1,0 +1,189 @@
+import logging
+import os.path
+import cuda
+import torch
+from diffusers.utils import CONFIG_NAME
+
+import onnxruntime as ort
+import json
+from onnx import TensorProto
+from diffusers.configuration_utils import ConfigMixin
+from diffusers.models.modeling_utils import ModelMixin
+from onnxruntime.transformers.io_binding_helper import TypeHelper
+
+
+def torch_to_onnx_type(torch_dtype):
+    if torch_dtype == torch.float32:
+        return TensorProto.FLOAT
+    elif torch_dtype == torch.float16:
+        return TensorProto.FLOAT16
+    elif torch_dtype == torch.bfloat16:
+        return TensorProto.BFLOAT16
+    elif torch_dtype == torch.int8:
+        return TensorProto.int8
+    elif torch_dtype == torch.int32:
+        return TensorProto.INT32
+    elif torch_dtype == torch.int64:
+        return TensorProto.INT64
+    else:
+        raise TypeError(f"Unsupported dtype: {torch_dtype}")
+
+
+class OrtWrapper(ModelMixin, ConfigMixin):
+    config_name = CONFIG_NAME
+
+    # @register_to_config
+    def __init__(self, onnx_path, execution_provider, session_options=ort.SessionOptions(), provider_options={}):
+        super().__init__()
+
+        session_options.add_session_config_entry("session.use_env_allocators", "1")
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        self.stream = torch.cuda.current_stream().cuda_stream
+
+        provider_options["user_compute_stream"] = str(self.stream)
+        self.session = ort.InferenceSession(onnx_path,
+                                            session_options=session_options,
+                                            providers=execution_provider,
+                                            provider_options=[provider_options, ])
+        self.input_names = {input_key.name: idx for idx, input_key in enumerate(self.session.get_inputs())}
+        self.input_shapes = {input_key.name: input_key.shape for idx, input_key in
+                             enumerate(self.session.get_inputs())}
+        self.input_dtypes = {input_key.name: input_key.type for input_key in self.session.get_inputs()}
+
+        self.output_names = {output_key.name: idx for idx, output_key in enumerate(self.session.get_outputs())}
+        self.output_shapes = {output_key.name: output_key.shape for idx, output_key in
+                              enumerate(self.session.get_outputs())}
+        self.fixed_output_shapes = True
+        for name, shape in self.output_shapes.items():
+            for dim in shape:
+                if isinstance(dim, str):
+                    self.fixed_output_shapes = False
+
+        self.output_dtypes = {output_key.name: output_key.type for output_key in self.session.get_outputs()}
+        # this is needed to identify the data type of the model
+        for name, dtype in self.input_dtypes.items():
+            self.register_buffer(
+                name,
+                torch.zeros(1, device="cuda", dtype=TypeHelper.ort_type_to_torch_type(dtype)),
+                persistent=False
+            )
+
+    def decode(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def encode(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def forward(self, *args, run_options=ort.RunOptions(), **kwargs):
+        binding = self.session.io_binding()
+        args_idx = 0
+        device = None
+        for name in self.input_names.keys():
+            value = kwargs.get(name, None)
+            if value is None:
+                value = args[args_idx]
+            expected_torch_dtype = TypeHelper.ort_type_to_torch_type(self.input_dtypes[name])
+
+            value = value.to(dtype=expected_torch_dtype).contiguous()
+            binding.bind_input(
+                name=name,
+                device_type='cuda',
+                device_id=0,
+                element_type=torch_to_onnx_type(value.dtype),
+                shape=tuple(value.shape),
+                buffer_ptr=value.data_ptr(),
+            )
+            if (device is not None and device != value.device):
+                logging.warning("Inputs are not on the same device. This may lead to errors")
+            device = value.device
+        torch_outputs = {}
+        for name in self.output_names:
+            if self.fixed_output_shapes:
+                torch_dtype = TypeHelper.ort_type_to_torch_type(self.output_dtypes[name])
+                torch_outputs[name] = torch.empty(self.output_shapes[name],
+                                                  device=device,
+                                                  dtype=torch_dtype)
+                binding.bind_output(
+                    name=name,
+                    device_type='cuda',
+                    device_id=0,
+                    element_type=torch_to_onnx_type(torch_dtype),
+                    shape=torch_outputs[name].shape,
+                    buffer_ptr=torch_outputs[name].data_ptr(),
+                )
+            else:
+                binding.bind_output(
+                    name=name,
+                    device_type='cuda'
+                )
+        self.session.run_with_iobinding(binding)
+        if not self.fixed_output_shapes:
+            outputs = binding.get_outputs()
+            for name, idx in self.output_names.items():
+                ort_value = outputs[idx]
+                shape = ort_value.shape()
+                torch_outputs[name] = torch.empty(shape,
+                                                  device=device,
+                                                  dtype=TypeHelper.ort_type_to_torch_type(ort_value.data_type()))
+                raise NotImplementedError()
+                cuda.bindings.runtime.cudaMemcpyAsync(
+                    torch_outputs[name].data_ptr(),
+                    ort_value.data_ptr(), self.stream)
+        return list(torch_outputs.values())
+
+
+model_id = os.path.abspath("N:/hf/flux.1-dev")
+
+def get_vae():
+    vae_onnx = "/mnt/hdd/FLUX.1-schnell-onnx/vae.opt/model.onnx"
+    vae_onnx_ctx = "vae_ctx.onnx"
+    config_path = os.path.join(model_id,"vae")
+    with open(os.path.join(config_path, CONFIG_NAME), "r") as f:
+        json_config = json.load(f)
+    ort_vae_model = OrtWrapper.from_config(json_config,
+                                               onnx_path=vae_onnx_ctx,
+                                               execution_provider=["NvTensorRTRTXExecutionProvider"])
+    return ort_vae_model
+
+
+def get_transformer():
+    transformer_onnx = "/mnt/hdd/FLUX.1-schnell-onnx/transfomer.opt/fp4/model.onnx"
+    transformer_onnx_ctx = "transformer_ctx.onnx"
+    config_path = os.path.join(model_id,"transformer")
+    with open(os.path.join(config_path, CONFIG_NAME), "r") as f:
+        json_config = json.load(f)
+    return OrtWrapper.from_config(json_config,
+                                  onnx_path=transformer_onnx_ctx,
+                                  execution_provider=["NvTensorRTRTXExecutionProvider"])
+
+
+from diffusers import FluxPipeline, StableDiffusion3Pipeline, SD3Transformer2DModel
+
+pipe = FluxPipeline.from_pretrained(model_id,
+                                    torch_dtype=torch.bfloat16,
+                                    vae=get_vae(),
+                                    transformer=get_transformer()
+                                    ).to("cuda")
+# pipe.enable_model_cpu_offload()
+
+prompt = "A cat holding a sign that says hello world"
+out = pipe(
+    prompt=prompt,
+    guidance_scale=0.,
+    height=1024,
+    width=1024,
+    num_inference_steps=40,
+).images[0]
+out.save("image.png")
+
+# pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers",
+#                                                 torch_dtype=torch.bfloat16)
+# pipe = pipe.to("cuda")
+#
+# out = pipe(
+#     "A cat holding a sign that says hello world",
+#     negative_prompt="",
+#     num_inference_steps=28,
+#     guidance_scale=7.0,
+# ).images[0]
+# out.save("image.png")
