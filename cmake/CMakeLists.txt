@@ -1949,3 +1949,7 @@ if(DEFINED BUILD_AS_ARM64X)
 
   include("${CMAKE_CURRENT_SOURCE_DIR}/arm64x.cmake")
 endif()
+
+if (onnxruntime_BUILD_CPP_SAMPLES)
+  include(onnxruntime_cpp_sample.cmake)
+endif()
