@@ -88,6 +88,12 @@ struct OrtTensorRTProviderOptionsV2 {
                                                     // can be updated using: UpdateTensorRTProviderOptionsWithValue
   size_t trt_onnx_bytestream_size{0};               // size of the byte stream provided as "trt_onnx_bytestream"
                                                     // can be updated using: UpdateTensorRTProviderOptionsWithValue
+  const void* trt_external_data_bytestream{nullptr};        // The byte stream of th original ONNX model containing the weights
+                                                            // (applicable only when the "trt_weight_stripped_engine_enable"
+                                                            // option is enabled)
+                                                            // can be updated using: UpdateTensorRTProviderOptionsWithValue
+  size_t trt_external_data_bytestream_size{0};      // size of the byte stream provided as "trt_onnx_bytestream"
+                                                    // can be updated using: UpdateTensorRTProviderOptionsWithValue
 
   const char* trt_engine_cache_prefix{nullptr};  // specify engine cache prefix
   int trt_engine_hw_compatible{0};               // Enable hardware compatibility. Default 0 = false, nonzero = true
