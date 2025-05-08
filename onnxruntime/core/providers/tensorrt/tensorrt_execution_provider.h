@@ -285,6 +285,8 @@ class TensorrtExecutionProvider : public IExecutionProvider {
                                     bool path_check,
                                     const void* onnx_model_bytestream,
                                     size_t onnx_model_bytestream_size,
+                                    const void* onnx_external_data_bytestream_,
+                                    size_t onnx_external_data_bytestream_size_,
                                     nvinfer1::ICudaEngine* trt_engine,
                                     bool serialize_refitted_engine,
                                     bool detailed_build_log);
@@ -311,6 +313,8 @@ class TensorrtExecutionProvider : public IExecutionProvider {
   std::string onnx_model_folder_path_;
   const void* onnx_model_bytestream_;
   size_t onnx_model_bytestream_size_;
+  const void* onnx_external_data_bytestream_ = nullptr;
+  size_t onnx_external_data_bytestream_size_ = 0;
   bool build_heuristics_enable_ = false;
   bool sparsity_enable_ = false;
   int builder_optimization_level_ = 3;
