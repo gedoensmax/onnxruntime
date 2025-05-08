@@ -2277,6 +2277,31 @@ SubGraphCollection_t TensorrtExecutionProvider::GetSupportedList(SubGraphCollect
         // When creating model proto from graph viewer, let ORT use priority-based topological sort based on node index.
         // The reason is, in some cases, for example ResNet50, using default topological sort will end up with generating
         // the model proto that has different node ordering compared to original onnx model.
+
+        // Set export initializers to false so that we can succesfully serialize.
+
+        std::vector<const char*> names;
+        std::vector<const char*> bytes;
+        std::vector<int64_t> sizes;
+
+        auto allInitializers = graph_viewer->GetAllInitializedTensors();
+
+        for (auto entry : allInitializers)
+        {
+            auto name = entry.first;
+            auto* tp = entry.second;
+
+            std::cout << "ORT: Saving initializers in mem: " << tp->name() << ", has raw data? " << tp->has_raw_data() << std::endl;
+
+            // TODO: Handle non-raw-data?
+            if (tp->has_raw_data())
+            {
+              names.push_back(tp->name().c_str());
+              bytes.push_back(tp->raw_data().c_str());
+              sizes.push_back(tp->raw_data().size());
+            }
+        }
+
         graph_viewer->ToProto(*model_proto->mutable_graph(), true, true, 1 /*priority-based topological sort*/);
         model_proto->set_ir_version(ONNX_NAMESPACE::Version::IR_VERSION);
 
@@ -2304,7 +2329,20 @@ SubGraphCollection_t TensorrtExecutionProvider::GetSupportedList(SubGraphCollect
         auto trt_parser = tensorrt_ptr::unique_pointer<nvonnxparser::IParser>(nvonnxparser::createParser(*trt_network, trt_logger));
 
 #if (NV_TENSORRT_MAJOR == 10 && NV_TENSORRT_MINOR > 1) || NV_TENSORRT_MAJOR > 10
-        auto is_model_supported = trt_parser->supportsModelV2(string_buf.data(), string_buf.size(), model_path_);
+
+        bool loadSuccess = trt_parser->loadModelProto(string_buf.data(), string_buf.size(), model_path_);
+        std::cout << "Load success (SupportedList): " << loadSuccess << std::endl;
+
+        bool loadInit = trt_parser->loadInitializers(names.data(), bytes.data(), sizes.data(), names.size());
+        std::cout << "LoadInit success (SupportedList): " << loadInit << std::endl;
+
+        // bool parseModelProto = trt_parser->parseModelProto();
+        // std::cout << "parsemodel success: " << parseModelProto << std::endl;
+
+        auto is_model_supported = trt_parser->supportsModelV3();
+        std::cout << "SupportsV3 success (SupportedList): " << is_model_supported << std::endl;
+
+        //ORT_THROW_IF_ERROR(ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "test"));
 
         // Note: Calling getNbSubgraphs or getSubgraphNodes before calling supportsModelV2 results in undefined behavior.
         auto num_subgraphs = trt_parser->getNbSubgraphs();
@@ -2350,7 +2388,7 @@ SubGraphCollection_t TensorrtExecutionProvider::GetSupportedList(SubGraphCollect
             next_nodes_list[i].first[j] = group.first[subgraph_node_index[next_nodes_list[i].first[j]]];
           }
           nodes_list_output.push_back(next_nodes_list[i]);
-        }
+       }
       }
     }
   }
@@ -2889,6 +2927,27 @@ Status TensorrtExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphView
   auto model = graph_body_viewer.CreateModel(*GetLogger());
   auto model_proto = model->ToProto();
 
+  // Set export initializers to false so that we can succesfully serialize.
+
+  std::vector<const char*> names;
+  std::vector<const char*> bytes;
+  std::vector<int64_t> sizes;
+
+  auto allInitializers = graph_body_viewer.GetAllInitializedTensors();
+
+  for (auto entry : allInitializers)
+  {
+      auto name = entry.first;
+      auto* tp = entry.second;
+      // TODO: Handle non-raw-data?
+      if (tp->has_raw_data())
+      {
+        names.push_back(tp->name().c_str());
+        bytes.push_back(tp->raw_data().c_str());
+        sizes.push_back(tp->raw_data().size());
+      }
+  }
+
   // ORT's default topological sort is using reversed DFS.
   // When creating model proto from graph viewer, let ORT use priority-based topological sort based on node index.
   // The reason is, in some cases, for example ResNet50, using default topological sort will end up with generating
@@ -2915,7 +2974,17 @@ Status TensorrtExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphView
   auto trt_network = std::unique_ptr<nvinfer1::INetworkDefinition>(trt_builder->createNetworkV2(network_flags));
   auto trt_config = std::unique_ptr<nvinfer1::IBuilderConfig>(trt_builder->createBuilderConfig());
   auto trt_parser = tensorrt_ptr::unique_pointer<nvonnxparser::IParser>(nvonnxparser::createParser(*trt_network, trt_logger));
-  trt_parser->parse(string_buf.data(), string_buf.size(), model_path_);
+
+  bool loadSuccess = trt_parser->loadModelProto(string_buf.data(), string_buf.size(), model_path_);
+  std::cout << "Load success: " << loadSuccess << std::endl;
+
+  bool loadInit = trt_parser->loadInitializers(names.data(), bytes.data(), sizes.data(), names.size());
+  std::cout << "LoadInit success: " << loadInit << std::endl;
+
+  bool parseModelProto = trt_parser->parseModelProto();
+  std::cout << "parsemodel success: " << parseModelProto << std::endl;
+
+  //trt_parser->parse(string_buf.data(), string_buf.size(), model_path_);
   if (max_workspace_size_ > 0) {
     trt_config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, max_workspace_size_);
   }
