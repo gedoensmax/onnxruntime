@@ -1,5 +1,5 @@
-$env:CUDA_VISIBLE_DEVICES = "0"
-$ErrorActionPreference = "Stop"
+#$env:CUDA_VISIBLE_DEVICES = "0"
+#$ErrorActionPreference = "Stop"
 
 $env:PATH += ";C:\TensorRT-RTX-1.0.0.0\lib"
 

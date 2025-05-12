@@ -175,10 +175,12 @@ class FluxTextToImagePipeline:
 
         # Create shared session options
         session_options = ort.SessionOptions()
-        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
         session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         session_options.enable_cpu_mem_arena = False
         session_options.enable_mem_pattern = False
+        session_options.add_session_config_entry("session.use_env_allocators", "1")
+
 
         if self.verbose:
             session_options.enable_profiling = True

@@ -164,7 +164,7 @@ def _optimize_sd_pipeline(
     # Warning: The node name might change in different export settings. See benchmark_flux.sh for the settings.
     flux_node_block_list = {
         "text_encoder_2": [
-            "/encoder/block.10/layer.1/DenseReluDense/wo/MatMul",
+            #"/encoder/block.10/layer.1/DenseReluDense/wo/MatMul",
             "SkipLayerNorm_20",
             "SkipLayerNorm_21",
             "SkipLayerNorm_22",
@@ -191,7 +191,7 @@ def _optimize_sd_pipeline(
             "SkipLayerNorm_43",
             "SkipLayerNorm_44",
             "SkipLayerNorm_45",
-            "/encoder/block.23/layer.1/DenseReluDense/wo/MatMul",
+            #"/encoder/block.23/layer.1/DenseReluDense/wo/MatMul",
             "SkipLayerNorm_46",
         ],
         "vae_decoder": [

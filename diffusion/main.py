@@ -3,6 +3,7 @@ import os.path
 import cuda
 import torch
 from diffusers.utils import CONFIG_NAME
+import pynvml
 
 import onnxruntime as ort
 import json
@@ -10,6 +11,7 @@ from onnx import TensorProto
 from diffusers.configuration_utils import ConfigMixin
 from diffusers.models.modeling_utils import ModelMixin
 from onnxruntime.transformers.io_binding_helper import TypeHelper
+from diffusers import FluxPipeline, StableDiffusion3Pipeline, SD3Transformer2DModel, FluxTransformer2DModel, AutoencoderKL
 
 
 def torch_to_onnx_type(torch_dtype):
@@ -32,15 +34,18 @@ def torch_to_onnx_type(torch_dtype):
 class OrtWrapper(ModelMixin, ConfigMixin):
     config_name = CONFIG_NAME
 
-    # @register_to_config
     def __init__(self, onnx_path, execution_provider, session_options=ort.SessionOptions(), provider_options={}):
         super().__init__()
 
         session_options.add_session_config_entry("session.use_env_allocators", "1")
         session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-        self.stream = torch.cuda.current_stream().cuda_stream
+        self.stream = torch.cuda.current_stream()
+        
+        # Create CUDA events for timing
+        self.start_event = torch.cuda.Event(enable_timing=True)
+        self.end_event = torch.cuda.Event(enable_timing=True)
 
-        provider_options["user_compute_stream"] = str(self.stream)
+        provider_options["user_compute_stream"] = str(self.stream.cuda_stream)
         self.session = ort.InferenceSession(onnx_path,
                                             session_options=session_options,
                                             providers=execution_provider,
@@ -75,6 +80,9 @@ class OrtWrapper(ModelMixin, ConfigMixin):
         return self.forward(*args, **kwargs)
 
     def forward(self, *args, run_options=ort.RunOptions(), **kwargs):
+        # Record start time
+        self.start_event.record(stream=self.stream)
+        
         binding = self.session.io_binding()
         args_idx = 0
         device = None
@@ -125,65 +133,133 @@ class OrtWrapper(ModelMixin, ConfigMixin):
                 torch_outputs[name] = torch.empty(shape,
                                                   device=device,
                                                   dtype=TypeHelper.ort_type_to_torch_type(ort_value.data_type()))
-                raise NotImplementedError()
+                raise NotImplementedError() # maybe use dl_pack ?
+                # https://github.com/microsoft/onnxruntime/blob/7e2408880e963bcfdd2b898c7b6464506545cec2/onnxruntime/python/onnxruntime_pybind_ortvalue.cc#L425
                 cuda.bindings.runtime.cudaMemcpyAsync(
                     torch_outputs[name].data_ptr(),
-                    ort_value.data_ptr(), self.stream)
+                    ort_value.data_ptr(), self.stream.cuda_stream)
+                    
+        # Record end time and synchronize
+        self.end_event.record(stream=self.stream)
+        self.end_event.synchronize()
+        
+        # Calculate elapsed time in milliseconds
+        elapsed_time = self.start_event.elapsed_time(self.end_event)
+        print(f"Forward pass took {elapsed_time:.2f} ms")
+        
         return list(torch_outputs.values())
 
+class TransfomerOrt(OrtWrapper, FluxTransformer2DModel):
+    pass
 
-model_id = os.path.abspath("N:/hf/flux.1-dev")
+class VaeOrt(OrtWrapper, AutoencoderKL):
+    pass
+
+
+#model_id = os.path.abspath("N:/hf/flux.1-dev")
+model_id = os.path.abspath("C:/flux.1-dev")
 
 def get_vae():
-    vae_onnx = "/mnt/hdd/FLUX.1-schnell-onnx/vae.opt/model.onnx"
     vae_onnx_ctx = "vae_ctx.onnx"
     config_path = os.path.join(model_id,"vae")
     with open(os.path.join(config_path, CONFIG_NAME), "r") as f:
         json_config = json.load(f)
-    ort_vae_model = OrtWrapper.from_config(json_config,
+    ort_vae_model = VaeOrt.from_config(json_config,
                                                onnx_path=vae_onnx_ctx,
                                                execution_provider=["NvTensorRTRTXExecutionProvider"])
     return ort_vae_model
 
 
 def get_transformer():
-    transformer_onnx = "/mnt/hdd/FLUX.1-schnell-onnx/transfomer.opt/fp4/model.onnx"
     transformer_onnx_ctx = "transformer_ctx.onnx"
     config_path = os.path.join(model_id,"transformer")
     with open(os.path.join(config_path, CONFIG_NAME), "r") as f:
         json_config = json.load(f)
-    return OrtWrapper.from_config(json_config,
+    return TransfomerOrt.from_config(json_config,
                                   onnx_path=transformer_onnx_ctx,
                                   execution_provider=["NvTensorRTRTXExecutionProvider"])
 
+def print_gpu_memory_stats(handle):
+    print("\nPyTorch GPU Memory Statistics:")
+    print(f"Allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+    print(f"Cached: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+    print(f"Max Allocated: {torch.cuda.max_memory_allocated() / 1024**2:.2f} MB")
+    print(f"Max Cached: {torch.cuda.max_memory_reserved() / 1024**2:.2f} MB")
+    
+    # Get memory info
+    memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    
+    print("\nSystem GPU Memory Statistics:")
+    print(f"Total: {memory_info.total / 1024**2:.2f} MB")
+    print(f"Used: {memory_info.used / 1024**2:.2f} MB")
+    print(f"Free: {memory_info.free / 1024**2:.2f} MB")
+    
+    # Get utilization info
+    utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+    print(f"GPU Utilization: {utilization.gpu}%")
+    print(f"Memory Utilization: {utilization.memory}%")
+    
 
-from diffusers import FluxPipeline, StableDiffusion3Pipeline, SD3Transformer2DModel
 
-pipe = FluxPipeline.from_pretrained(model_id,
-                                    torch_dtype=torch.bfloat16,
-                                    vae=get_vae(),
-                                    transformer=get_transformer()
-                                    ).to("cuda")
-# pipe.enable_model_cpu_offload()
+if __name__ == "__main__":
+    
+    # Initialize NVML
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(0) 
 
-prompt = "A cat holding a sign that says hello world"
-out = pipe(
-    prompt=prompt,
-    guidance_scale=0.,
-    height=1024,
-    width=1024,
-    num_inference_steps=40,
-).images[0]
-out.save("image.png")
 
-# pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers",
-#                                                 torch_dtype=torch.bfloat16)
-# pipe = pipe.to("cuda")
-#
-# out = pipe(
-#     "A cat holding a sign that says hello world",
-#     negative_prompt="",
-#     num_inference_steps=28,
-#     guidance_scale=7.0,
-# ).images[0]
-# out.save("image.png")
+    print_gpu_memory_stats(handle)
+    pipe = FluxPipeline.from_pretrained(model_id,
+                                        torch_dtype=torch.bfloat16,
+                                        vae=get_vae(),
+                                        transformer=get_transformer()
+                                        ).to("cuda:0")
+
+    # Create CUDA events for timing the entire pipeline
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+
+    prompt = "A cat holding a sign that says hello world"
+
+    for i in range(10):
+        # Record start time on default stream
+        start_event.record(stream=torch.cuda.default_stream())
+        
+
+        out = pipe(
+            prompt=prompt,
+            guidance_scale=0.,
+            height=1024,
+            width=1024,
+            num_inference_steps=40,
+        ).images[0]
+
+        # Record end time on default stream and synchronize
+        end_event.record(stream=torch.cuda.default_stream())
+        end_event.synchronize()
+
+        # Calculate and print total pipeline time
+        total_time = start_event.elapsed_time(end_event)
+        print(f"Total pipeline execution took {total_time:.2f} ms")
+
+        # Print GPU memory statistics
+        print_gpu_memory_stats(handle)
+
+    out.save("image.png")
+
+
+
+    # pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers",
+    #                                                 torch_dtype=torch.bfloat16)
+    # pipe = pipe.to("cuda")
+    #
+    # out = pipe(
+    #     "A cat holding a sign that says hello world",
+    #     negative_prompt="",
+    #     num_inference_steps=28,
+    #     guidance_scale=7.0,
+    # ).images[0]
+    # out.save("image.png")
+
+    # Shutdown NVML
+    pynvml.nvmlShutdown()
