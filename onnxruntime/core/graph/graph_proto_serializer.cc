@@ -74,13 +74,13 @@ void GraphViewerToProto(const GraphViewer& graph_view,
 
     for (auto& it : const_inits) {
 
-      std::cout << "ORT: writing init: " << it << std::endl;
+      // std::cout << "ORT: writing init: " << it << std::endl;
 
       auto* p_initializer = graph_proto.add_initializer();
 
-      if (p_initializer->has_raw_data())
+      auto* init = initializers.at(it);
+      if (init->has_raw_data())
       {
-        auto* init = initializers.at(it);
         // Set datatype
         if (init->has_data_type())
         {

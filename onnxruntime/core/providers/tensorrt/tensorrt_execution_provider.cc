@@ -2291,7 +2291,7 @@ SubGraphCollection_t TensorrtExecutionProvider::GetSupportedList(SubGraphCollect
             auto name = entry.first;
             auto* tp = entry.second;
 
-            std::cout << "ORT: Saving initializers in mem: " << tp->name() << ", has raw data? " << tp->has_raw_data() << std::endl;
+            // std::cout << "ORT: Saving initializers in mem: " << tp->name() << ", has raw data? " << tp->has_raw_data() << std::endl;
 
             // TODO: Handle non-raw-data?
             if (tp->has_raw_data())
@@ -2300,6 +2300,9 @@ SubGraphCollection_t TensorrtExecutionProvider::GetSupportedList(SubGraphCollect
               bytes.push_back(tp->raw_data().c_str());
               sizes.push_back(tp->raw_data().size());
             }
+            // else {
+            //   std::cout << "ORT: Tensor has no raw data: " << tp->name() << std::endl;
+            // }
         }
 
         graph_viewer->ToProto(*model_proto->mutable_graph(), true, true, 1 /*priority-based topological sort*/);
