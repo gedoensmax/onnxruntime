@@ -37,7 +37,7 @@ mimalloc;https://github.com/microsoft/mimalloc/archive/refs/tags/v2.1.1.zip;d5ee
 mp11;https://github.com/boostorg/mp11/archive/refs/tags/boost-1.82.0.zip;9bc9e01dffb64d9e0773b2e44d2f22c51aace063
 onnx;https://github.com/onnx/onnx/archive/7fc2b81a275223f5b02a522d9d2649837542a7be.zip;555338a12903941bb45f57540476244f9ffee17b
 # Side branch
-onnx_tensorrt;https://github.com/kevinch-nv/onnx-tensorrt/archive/1326108ab9f72451c33013094edf7238700b0041.zip;7d6285a6b221b8945fb94cfae9de7d6f1d84a6ba
+onnx_tensorrt;https://github.com/gedoensmax/onnx-tensorrt/archive/96280fae14fd9da2fb302a091da11b0f016b0b4b.zip;a578c21225bfe9573f5fba16f77c0d307fc812ff
 protobuf;https://github.com/protocolbuffers/protobuf/archive/refs/tags/v21.12.zip;7cf2733949036c7d52fda017badcab093fe73bfa
 protoc_win64;https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-win64.zip;b4521f7ada5b260380f94c4bd7f1b7684c76969a
 protoc_win32;https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-win32.zip;3688010318192c46ce73213cdfb6b3e5656da874
