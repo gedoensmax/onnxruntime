@@ -203,6 +203,7 @@ struct TensorrtFuncState {
   std::string cache_suffix;
   bool engine_hw_compatible = false;
   std::vector<nvinfer1::PreviewFeature> preview_features;
+  const GraphViewer* graph_viewer;
 };
 
 // Minimum information to construct kernel function state for direct engine load code path
@@ -285,11 +286,12 @@ class TensorrtExecutionProvider : public IExecutionProvider {
                                     bool path_check,
                                     const void* onnx_model_bytestream,
                                     size_t onnx_model_bytestream_size,
-                                    const void* onnx_external_data_bytestream_,
-                                    size_t onnx_external_data_bytestream_size_,
+                                    const void* onnx_external_data_bytestream,
+                                    size_t onnx_external_data_bytestream_size,
                                     nvinfer1::ICudaEngine* trt_engine,
                                     bool serialize_refitted_engine,
-                                    bool detailed_build_log);
+                                    bool detailed_build_log,
+                                    const GraphViewer* graph_body_viewer = nullptr);
 
  private:
   mutable TensorrtExecutionProviderInfo info_;
