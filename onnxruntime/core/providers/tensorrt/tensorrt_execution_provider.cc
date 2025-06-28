@@ -2335,22 +2335,30 @@ SubGraphCollection_t TensorrtExecutionProvider::GetSupportedList(SubGraphCollect
 
         auto allInitializers = graph_viewer->GetAllInitializedTensors();
 
-        for (auto entry : allInitializers)
-        {
-            auto* tp = entry.second;
-            if (tp->has_raw_data())
-            {
+        for (auto entry : allInitializers) {
+          auto* tp = entry.second;
+          if (tp->has_raw_data() || tp->has_data_location()) {
+            std::unique_ptr<ONNX_NAMESPACE::TensorProto> full_init;
+            ORT_THROW_IF_ERROR(utils::GetTensorProtoWithDataIfInMemory(*tp, full_init));
+            // TODO copies a lot of data
+            if (full_init) {
               userWeights.push_back(
-                TensorrtUserWeights{tp->name(), tp->raw_data(), (int64_t)tp->raw_data().size()});
+                  TensorrtUserWeights(tp->name(), std::move(full_init->raw_data())));
+            } else {
+              userWeights.push_back(
+                  TensorrtUserWeights(tp->name(), std::move(tp->raw_data())));
             }
+          }
         }
 
         graph_viewer->ToProto(*model_proto->mutable_graph(), true, true, 1 /*priority-based topological sort*/, false);
         model_proto->set_ir_version(ONNX_NAMESPACE::Version::IR_VERSION);
 
         std::string string_buf;
-        model_proto->SerializeToString(string_buf);
-
+        bool proto_serialization = model_proto->SerializeToString(string_buf);
+        if (!proto_serialization) {
+          ORT_THROW_IF_ERROR(ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "Proto serialization failed."));
+        }
         if (dump_subgraphs_) {
           // Dump TensorRT subgraph for debugging
           std::fstream dump("TensorrtExecutionProvider_TRT_Subgraph.onnx", std::ios::out | std::ios::trunc | std::ios::binary);
@@ -2375,8 +2383,7 @@ SubGraphCollection_t TensorrtExecutionProvider::GetSupportedList(SubGraphCollect
 
         bool loadSuccess = trt_parser->loadModelProto(string_buf.data(), string_buf.size(), model_path_);
         bool loadInit = true;
-        for (auto const& userWeight : userWeights)
-        {
+        for (auto const& userWeight : userWeights) {
           loadInit |= trt_parser->loadInitializer(userWeight.name.c_str(), static_cast<void const*>(userWeight.data.c_str()), userWeight.size);
         }
         if (!(loadSuccess && loadInit)) {
@@ -3009,7 +3016,7 @@ common::Status TensorrtExecutionProvider::RefitEngine(std::string onnx_model_fil
     // provide dedicated initializers if ONNX serialization is not complete
     if (!names.empty()) {
       LOGS_DEFAULT(VERBOSE) << "[TensorRT EP] Number of initializers submitted to refitter " << names.size();
-      for (int init_idx = 0; init_idx < names.size(); ++init_idx){
+      for (int init_idx = 0; init_idx < names.size(); ++init_idx) {
         bool loadInit = parser_refitter->loadInitializer(names[init_idx], bytes[init_idx], sizes[init_idx]);
         if (!loadInit) {
           ORT_THROW_IF_ERROR(ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "TRT Refit Parser could not find initializer with name %s", names[init_idx]));
@@ -3097,16 +3104,21 @@ Status TensorrtExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphView
 
   auto allInitializers = graph_body_viewer.GetAllInitializedTensors();
 
-  for (auto entry : allInitializers)
-  {
-      auto name = entry.first;
-      auto* tp = entry.second;
-      // TODO: Handle non-raw-data?
-      if (tp->has_raw_data())
-      {
-          userWeights->push_back(
-            TensorrtUserWeights{tp->name(), tp->raw_data(), (int64_t)tp->raw_data().size()});
+  for (auto entry : allInitializers) {
+    auto name = entry.first;
+    auto* tp = entry.second;
+    if (tp->has_raw_data() || tp->has_data_location()) {
+      std::unique_ptr<ONNX_NAMESPACE::TensorProto> full_init;
+      ORT_RETURN_IF_ERROR(utils::GetTensorProtoWithDataIfInMemory(*tp, full_init));
+      // TODO copies a lot of data
+      if (full_init) {
+        userWeights->push_back(
+            TensorrtUserWeights(tp->name(), std::move(full_init->raw_data())));
+      } else {
+        userWeights->push_back(
+            TensorrtUserWeights(tp->name(), tp->raw_data()));
       }
+    }
   }
 
   // ORT's default topological sort is using reversed DFS.
@@ -3116,8 +3128,10 @@ Status TensorrtExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphView
   graph_body_viewer.ToProto(*model_proto->mutable_graph(), true, true, 1 /*priority-based topological sort*/, false);
   model_proto->set_ir_version(ONNX_NAMESPACE::Version::IR_VERSION);
   std::string string_buf;
-  model_proto->SerializeToString(string_buf);
-
+  bool proto_serialization = model_proto->SerializeToString(string_buf);
+  if (!proto_serialization) {
+    ORT_THROW_IF_ERROR(ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "Proto serialization failed."));
+  }
   if (dump_subgraphs_) {
     // Dump TensorRT subgraphs
     std::fstream dump(fused_node.Name() + ".onnx", std::ios::out | std::ios::trunc | std::ios::binary);
@@ -3138,8 +3152,7 @@ Status TensorrtExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphView
 
   bool loadSuccess = trt_parser->loadModelProto(string_buf.data(), string_buf.size(), model_path_);
   bool loadInit = true;
-  for (auto const& userWeight : *userWeights)
-  {
+  for (auto const& userWeight : *userWeights) {
     trt_parser->loadInitializer(userWeight.name.c_str(), static_cast<void const*>(userWeight.data.c_str()), userWeight.size);
   }
   if (!(loadSuccess && loadInit)) {
@@ -3511,7 +3524,7 @@ Status TensorrtExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphView
     ctx_model_path_ = GetCtxModelPath(ep_context_file_path_, model_path_);
   }
 
- if (!has_dynamic_shape) {
+  if (!has_dynamic_shape) {
     std::string timing_cache_path = "";
     bool engine_update = false;
     if (timing_cache_enable_) {

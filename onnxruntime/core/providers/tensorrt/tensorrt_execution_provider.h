@@ -159,6 +159,9 @@ using ShapeRangesMap = std::unordered_map<std::string, std::unordered_map<size_t
 
 // Struct to hold user data. TODO: Copy the data for now?
 struct TensorrtUserWeights {
+  TensorrtUserWeights(std::string in_name, std::string in_data) :
+    name(in_name), data(in_data), size(data.size()) {}
+
   std::string name{};
   std::string data{};
   int64_t size{};
