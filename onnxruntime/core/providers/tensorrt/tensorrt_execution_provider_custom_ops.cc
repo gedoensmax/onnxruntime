@@ -19,8 +19,11 @@
 #define LIBRARY_EXTENSION ".so"
 #endif
 
-// TODO has to include version number after TRT 10
-#define NVINFER_PLUGIN_LIB_NAME "nvinfer_plugin"
+#ifdef _WIN32
+#define ORT_DEF2STR(X) L#X
+#else
+#define ORT_DEF2STR(X) #X
+#endif
 
 namespace onnxruntime {
 extern TensorrtLogger& GetTensorrtLogger(bool verbose);
@@ -76,8 +79,14 @@ common::Status CreateTensorRTCustomOpDomainList(std::vector<OrtCustomOpDomain*>&
     try {
       void* library_handle = nullptr;
       const auto& env = onnxruntime::GetDefaultEnv();
+#if NV_TENSORRT_MAJOR < 10
       auto full_path = env.GetRuntimePath() +
-                       PathString(LIBRARY_PREFIX NVINFER_PLUGIN_LIB_NAME LIBRARY_EXTENSION);
+                             PathString(LIBRARY_PREFIX ORT_TSTR("nvinfer_plugin") LIBRARY_EXTENSION);
+#else
+      auto full_path = env.GetRuntimePath() +
+                             PathString(LIBRARY_PREFIX ORT_TSTR("nvinfer_plugin_" ORT_DEF2STR(NV_TENSORRT_MAJOR_STR)) LIBRARY_EXTENSION);
+#endif
+
       ORT_THROW_IF_ERROR(env.LoadDynamicLibrary(full_path, false, &library_handle));
 
       bool (*dyn_initLibNvInferPlugins)(void* logger, char const* libNamespace);
