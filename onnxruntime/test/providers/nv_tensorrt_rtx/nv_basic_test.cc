@@ -389,5 +389,47 @@ TYPED_TEST(NvExecutionProviderTest, IOTypeTests) {
   }
 }
 
+TEST(NvExecutionProviderTest, CreateDeviceTensor) {
+  PathString model_name = ORT_TSTR("nv_execution_provider_test.onnx");
+  std::string graph_name = "test";
+  std::vector<int> dims = {1, 3, 2};
+  CreateBaseModel(model_name, graph_name, dims);
+
+  auto env = Ort::Env();
+  auto logging_level = OrtLoggingLevel::ORT_LOGGING_LEVEL_VERBOSE;
+  env.UpdateEnvWithCustomLogLevel(logging_level);
+
+  Ort::SessionOptions so;
+  Ort::RunOptions run_options;
+  so.AppendExecutionProvider(kNvTensorRTRTXExecutionProvider, {});
+  Ort::Session session(env, model_name.c_str(), so);
+
+  Ort::IoBinding binding(session);
+  Ort::MemoryInfo mem_info_cuda("Cuda", OrtAllocatorType::OrtDeviceAllocator,0, OrtMemTypeDefault);
+  Ort::Allocator allocator(session, mem_info_cuda);
+  // OrtAllocator* allocator;
+  // auto api = Ort::GetApi();
+  // Ort::ThrowOnError(api.CreateAllocator(session, mem_info_cuda, &allocator));
+  for (int input_idx = 0; input_idx < int(session.GetInputCount()); ++input_idx) {
+    auto input_name = session.GetInputNameAllocated(input_idx, Ort::AllocatorWithDefaultOptions());
+    auto full_tensor_info = session.GetInputTypeInfo(input_idx);
+    auto tensor_info = full_tensor_info.GetTensorTypeAndShapeInfo();
+    auto shape = tensor_info.GetShape();
+    auto type = tensor_info.GetElementType();
+    auto input_value = Ort::Value::CreateTensor(allocator,
+                                                shape.data(),
+                                                shape.size(),
+                                                type);
+    binding.BindInput(input_name.get(), input_value);
+  }
+
+  for (int output_idx = 0; output_idx < int(session.GetOutputCount()); ++output_idx) {
+    auto output_name = session.GetOutputNameAllocated(output_idx, Ort::AllocatorWithDefaultOptions());
+    binding.BindOutput(output_name.get(), mem_info_cuda);
+  }
+  session.Run(run_options, binding);
+  auto outputs = session.GetOutputs();
+}
+
 }  // namespace test
 }  // namespace onnxruntime
