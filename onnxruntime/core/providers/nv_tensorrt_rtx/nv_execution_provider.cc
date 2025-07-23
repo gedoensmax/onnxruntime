@@ -1291,7 +1291,8 @@ Status NvExecutionProvider::ReplayGraph(int) {
   // Please note that CUDAGraph::Replay() is not thread safe.
   // ORT TRT calls ReplayGraph() in compute_func() where synchronization is enforced due to lock_guard(),
   // therefore calling CUDAGraph::Replay() here is guaranteed to be thread safe.
-  return cuda_graph_.Replay(0);
+  // TODO this is a hack to not sync the graph we have to understand how this can be circumvented
+  return cuda_graph_.Replay(0, false);
 }
 
 void NvExecutionProvider::IncrementRegularRunCountBeforeGraphCapture() {
@@ -2648,6 +2649,9 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphViewer& gr
     // save profile and serialize/save timing cache. Therefore, those operations should be synchronized across different threads when ORT is using multithreading.
     // More details here, https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html#threading
     std::lock_guard<std::mutex> lock(*(trt_state->tensorrt_mu_ptr));
+    if (cuda_graph_enable_ && IsGraphCaptureAllowed() && IsGraphCaptured(0)) {
+      return cuda_graph_.Replay(0);
+    }
     const std::unordered_map<std::string, size_t>& input_indexes = (trt_state->input_info)[0];
     const std::unordered_map<std::string, size_t>& output_indexes = (trt_state->output_info)[0];
     const std::unordered_map<std::string, size_t>& output_types = (trt_state->output_info)[1];
@@ -2830,6 +2834,8 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphViewer& gr
     // Start CUDA graph capture.
     // Note: The reason we don't put graph capture in OnRunStart() like CUDA EP does is because
     // current ORT TRT doesn't get cuda stream until compute time and graph capture requires cuda stream.
+
+    // TODO(maximilianm): need to recapture if device memory changes
     if (cuda_graph_enable_ && IsGraphCaptureAllowed() && !IsGraphCaptured(0)) {
       LOGS_DEFAULT(INFO) << "Capturing the cuda graph for this model";
       cuda_graph_.SetStream(stream);
@@ -3019,7 +3025,9 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromPrecompiledEngine(const Gra
     // The whole compute_function should be considered the critical section.
     // More details here, https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html#threading
     std::lock_guard<std::mutex> lock(*(trt_state->tensorrt_mu_ptr));
-
+    if (cuda_graph_enable_ && IsGraphCaptureAllowed() && IsGraphCaptured(0)) {
+      return cuda_graph_.Replay(0);
+    }
     const std::unordered_map<std::string, size_t>& input_indexes = (trt_state->input_info)[0];
     const std::unordered_map<std::string, size_t>& output_indexes = (trt_state->output_info)[0];
     const std::unordered_map<std::string, size_t>& output_types = (trt_state->output_info)[1];
