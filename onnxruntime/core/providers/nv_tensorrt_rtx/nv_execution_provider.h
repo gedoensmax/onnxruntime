@@ -16,6 +16,7 @@ typedef void* cudnnStatus_t;
 #include <mutex>
 #include "core/providers/cuda/cuda_graph.h"
 #include "nv_execution_provider_info.h"
+#include "nv_internal_allocator.h"
 
 namespace onnxruntime {
 
@@ -258,6 +259,8 @@ class NvExecutionProvider : public IExecutionProvider {
   int device_id_;
   std::string compute_capability_;
   size_t max_ctx_mem_size_ = 0;
+  std::unique_ptr<TRTAllocatorAsync> weights_memory_;
+  std::unique_ptr<TRTAllocatorAsync> activation_memory_;
   mutable char model_path_[4096] = {};  // Reserved for max path length
   bool engine_decryption_enable_ = false;
   int (*engine_decryption_)(const char*, char*, size_t*) = nullptr;

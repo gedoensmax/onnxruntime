@@ -1206,6 +1206,11 @@ NvExecutionProvider::NvExecutionProvider(const NvExecutionProviderInfo& info)
   {
     auto lock = GetApiLock();
     runtime_ = std::unique_ptr<nvinfer1::IRuntime>(nvinfer1::createInferRuntime(GetTensorrtLogger(detailed_build_log_)));
+    // This is required for stream aware allocations: https://github.com/microsoft/onnxruntime/pull/25465
+    // we might still need to use cudaMallocAsync for allocations coming from other TRT internal streams
+    weights_memory_ = std::make_unique<TRTAllocatorAsync>("TensorRTRTXWeightAllocator" /*, alloc_*/);
+    activation_memory_ = std::make_unique<TRTAllocatorAsync>("TensorRTRTXActivationAllocator" /*, alloc_*/);
+    runtime_->setGpuAllocator(weights_memory_.get());
   }
 
   trt_version_ = getInferLibVersion();
@@ -2571,7 +2576,10 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphViewer& gr
     return ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL,
                            "Nv EP could not build execution context for fused node: " + fused_node.Name());
   }
-
+  if (!trt_context->setTemporaryStorageAllocator(activation_memory_.get())) {
+    return ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL,
+                           "Nv EP could not register the allocator for activation memory: " + fused_node.Name());
+  }
   bool is_dynamic_shape_context = false;
   // Create input to index map
   for (int i = 0; i < num_inputs; ++i) {
@@ -2809,11 +2817,16 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphViewer& gr
     }
     if (trt_state->context_memory_size != mem_size) {
       LOGS_DEFAULT(INFO) << "[NvTensorRTRTX EP] A new context memory was allocated with size " << mem_size;
+      // TODO as soon as stream aware allocators are merged we should consider switching to this
+      // trt_state->context_memory = IAllocatorUniquePtr<void>(
+      //     activation_memory_->allocateAsync(mem_size, 0, 0, stream),
+      //     [allocator = activation_memory_.get(), s = stream](void* p) {
+      //       allocator->deallocateAsync(p, s);
+      //     });
       trt_state->context_memory = IAllocator::MakeUniquePtrFromOrtAllocator<void>(alloc, mem_size, false /*use_reserve*/);
       trt_state->context_memory_size = mem_size;
     }
     trt_context->setDeviceMemoryV2(trt_state->context_memory.get(), mem_size);
-
     // Start CUDA graph capture.
     // Note: The reason we don't put graph capture in OnRunStart() like CUDA EP does is because
     // current ORT TRT doesn't get cuda stream until compute time and graph capture requires cuda stream.
@@ -2936,7 +2949,10 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromPrecompiledEngine(const Gra
     return ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL,
                            "Nv EP could not build execution context for fused node: " + fused_node.Name());
   }
-
+  if (!trt_context->setTemporaryStorageAllocator(activation_memory_.get())) {
+    return ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL,
+                           "Nv EP could not register the allocator for activation memory: " + fused_node.Name());
+  }
   bool is_dynamic_shape_context = false;
   // Create input/output to index maps
   for (int32_t i = 0; i < trt_engine->getNbIOTensors(); ++i) {
@@ -3104,6 +3120,12 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromPrecompiledEngine(const Gra
     }
     if (trt_state->context_memory_size != mem_size) {
       LOGS_DEFAULT(INFO) << "[NvTensorRTRTX EP] A new context memory was allocated with size " << mem_size;
+      // TODO as soon as stream aware allocators are merged we should consider switching to this
+      // trt_state->context_memory = IAllocatorUniquePtr<void>(
+      //     activation_memory_->allocateAsync(mem_size, 0, 0, stream),
+      //     [allocator = activation_memory_.get(), s = stream](void* p) {
+      //       allocator->deallocateAsync(p, s);
+      //     });
       trt_state->context_memory = IAllocator::MakeUniquePtrFromOrtAllocator<void>(alloc, mem_size, false /*use_reserve*/);
       // trt_state->context_memory = IAllocator::MakeUniquePtr<void>(alloc, mem_size, false /*use_reserve*/, stream);
       trt_state->context_memory_size = mem_size;
