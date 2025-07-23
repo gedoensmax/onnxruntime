@@ -24,6 +24,7 @@ class TRTAllocatorAsync : public nvinfer1::IGpuAsyncAllocator {
   bool deallocateAsync(void* const memory, cudaStream_t /*stream*/) noexcept override;
 
   void logStats();
+
  private:
   std::string name_;
   OrtAllocator* const allocator_;
