@@ -389,6 +389,7 @@ TYPED_TEST(NvExecutionProviderTest, IOTypeTests) {
   }
 }
 
+#if defined(WIN32)
 static bool SessionHasEp(Ort::Session& session, const char* ep_name) {
   // Access the underlying InferenceSession.
   const OrtSession* ort_session = session;
@@ -404,15 +405,14 @@ static bool SessionHasEp(Ort::Session& session, const char* ep_name) {
   return has_ep;
 }
 
-#if defined(WIN32)
 // Tests autoEP feature to automatically select an EP that supports the GPU.
 // Currently only works on Windows.
 TEST(NvExecutionProviderTest, AutoEp_PreferGpu) {
-  PathString model_name = ORT_TSTR("nv_execution_provider_data_dyn_test.onnx");
+  PathString model_name = ORT_TSTR("nv_execution_provider_auto_ep.onnx");
   std::string graph_name = "test";
-  std::vector<int> dims = {1, -1, -1};
+  std::vector<int> dims = {1, 2, 3};
 
-  CreateBaseModel(model_name, graph_name, dims, true);
+  CreateBaseModel(model_name, graph_name, dims);
 
   auto env = Ort::Env();
   auto logging_level = OrtLoggingLevel::ORT_LOGGING_LEVEL_WARNING;
