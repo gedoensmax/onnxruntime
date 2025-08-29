@@ -44,7 +44,11 @@ void* CUDAAllocator::Alloc(size_t size) {
   void* p = nullptr;
   if (size > 0) {
     // BFCArena was updated recently to handle the exception and adjust the request size
-    CUDA_CALL_THROW(cudaMalloc((void**)&p, size));
+    if (stream_) {
+      CUDA_CALL_THROW(cudaMallocAsync((void**)&p, size, stream_));
+    } else {
+      CUDA_CALL_THROW(cudaMalloc((void**)&p, size));
+    }
   }
   return p;
 }
@@ -52,7 +56,11 @@ void* CUDAAllocator::Alloc(size_t size) {
 void CUDAAllocator::Free(void* p) {
   SetDevice(false);
   CheckDevice(false);  // ignore CUDA failure when free
-  cudaFree(p);         // do not throw error since it's OK for cudaFree to fail during shutdown
+  if (stream_) {
+    cudaFreeAsync(p, stream_);
+  } else {
+    cudaFree(p);         // do not throw error since it's OK for cudaFree to fail during shutdown
+  }
 }
 
 void* CUDAExternalAllocator::Alloc(size_t size) {

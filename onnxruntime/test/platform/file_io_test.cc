@@ -20,6 +20,7 @@
 #include "asserts.h"
 #include "core/common/span_utils.h"
 #include "test/util/include/file_util.h"
+#include "test/util/include/asserts.h"
 
 namespace onnxruntime {
 namespace test {

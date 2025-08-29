@@ -6,23 +6,26 @@
 
 #include "core/common/inlined_containers.h"
 #include "core/framework/allocator.h"
+#include "core/providers/cuda/cuda_stream_handle.h"
+
 #include <mutex>
 
 namespace onnxruntime {
 
 class CUDAAllocator : public IAllocator {
  public:
-  CUDAAllocator(OrtDevice::DeviceId device_id, const char* name)
+  CUDAAllocator(OrtDevice::DeviceId device_id, const char* name, cudaStream_t stream = nullptr)
       : IAllocator(OrtMemoryInfo(name, OrtAllocatorType::OrtDeviceAllocator,
                                  OrtDevice(OrtDevice::GPU, OrtDevice::MemType::DEFAULT, OrtDevice::VendorIds::NVIDIA,
                                            device_id),
-                                 OrtMemTypeDefault)) {}
+                                 OrtMemTypeDefault)), stream_(stream) {}
   void* Alloc(size_t size) override;
   void Free(void* p) override;
 
  private:
   void CheckDevice(bool throw_when_fail) const;
   void SetDevice(bool throw_when_fail) const;
+  cudaStream_t stream_;
 };
 
 class CUDAExternalAllocator : public CUDAAllocator {

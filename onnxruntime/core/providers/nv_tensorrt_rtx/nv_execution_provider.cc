@@ -952,6 +952,14 @@ NvExecutionProvider::NvExecutionProvider(const NvExecutionProviderInfo& info)
     ORT_THROW_IF_ERROR(ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL,
                                        "[NvTensorRTRTX EP] The execution provider only supports RTX devices with compute capabilities 86, 89, 120 and above"));
   }
+  cuda_graph_enable_ = info.cuda_graph_enable;
+  multi_profile_enable_ = info.multi_profile_enable;
+  op_types_to_exclude_ = info.op_types_to_exclude;
+  force_reallocate_workspace_memory_ = true;
+  if (cuda_graph_enable_ && force_reallocate_workspace_memory_) {
+    cuda_graph_enable_ = false;
+    LOGS_DEFAULT(WARNING) << "[NvTensorRTRTX EP] CUDA graph is not supported for force_reallocate_workspace_memory_ is true";
+  }
   compute_capability_ = GetComputeCapability(prop);
   if (info.has_user_compute_stream) {
     external_stream_ = true;
@@ -962,6 +970,21 @@ NvExecutionProvider::NvExecutionProvider(const NvExecutionProviderInfo& info)
   } else {
     external_stream_ = false;
     stream_ = nullptr;  // Will be created in compute function
+  }
+  if (force_reallocate_workspace_memory_ && !stream_) {
+    external_stream_ = false;
+    CUDA_CALL_THROW(cudaStreamCreate(&stream_));
+  }
+  // cuda graph:
+  // cudaStreamSynchronize() is not allowed in cuda graph capture.
+  //
+  // external stream:
+  // If user provides "external" cuda stream, only this cuda stream will be used even if multiple threads are running InferenceSession.Run() concurrently.
+  // So, no need to synchronize different streams after enqueueV3.
+  //
+  // force_reallocate_workspace_memory_: for this we have to sync after enqueueV3 since the memory is not allocated stream aware
+  if (external_stream_ || !force_reallocate_workspace_memory_) {
+    sync_stream_after_enqueue_ = false;
   }
 
   std::string profile_min_shapes, profile_max_shapes, profile_opt_shapes;
@@ -1075,10 +1098,6 @@ NvExecutionProvider::NvExecutionProvider(const NvExecutionProviderInfo& info)
     }
   }
 
-  cuda_graph_enable_ = info.cuda_graph_enable;
-  multi_profile_enable_ = info.multi_profile_enable;
-  op_types_to_exclude_ = info.op_types_to_exclude;
-
   // Validate setting
   if (max_partition_iterations_ <= 0) {
     // LOGS_DEFAULT(WARNING) << "[NvTensorRTRTX EP] TensorRT option nv_max_partition_iterations must be a positive integer value. Set it to 1000";
@@ -1132,16 +1151,6 @@ NvExecutionProvider::NvExecutionProvider(const NvExecutionProviderInfo& info)
       ORT_THROW_IF_ERROR(ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL,
                                          "NvTensorRTRTX EP could not find decryption function in shared library from " + engine_decryption_lib_path_));
     }
-  }
-
-  // cuda graph:
-  // cudaStreamSynchronize() is not allowed in cuda graph capture.
-  //
-  // external stream:
-  // If user provides "external" cuda stream, only this cuda stream will be used even if multiple threads are running InferenceSession.Run() concurrently.
-  // So, no need to synchronize different streams after enqueueV3.
-  if (external_stream_) {
-    sync_stream_after_enqueue_ = false;
   }
 
   {
@@ -1287,23 +1296,33 @@ Status NvExecutionProvider::OnRunEnd(bool sync_stream, const onnxruntime::RunOpt
 }
 
 std::vector<AllocatorPtr> NvExecutionProvider::CreatePreferredAllocators() {
-  OrtArenaCfg arena_cfg(0, static_cast<int>(ArenaExtendStrategy::kNextPowerOfTwo),
-                        -1, -1, -1, -1);
-  AllocatorCreationInfo default_memory_info(
-      [](OrtDevice::DeviceId device_id) { return std::make_unique<CUDAAllocator>(device_id, CUDA); },
-      narrow<OrtDevice::DeviceId>(device_id_),
-      true,
-      arena_cfg,
-      // make it stream aware
-      true);
+  std::vector<AllocatorPtr> allocators;
+  if (force_reallocate_workspace_memory_) {
+    AllocatorCreationInfo default_memory_info(
+        [stream = stream_](OrtDevice::DeviceId device_id) { return std::make_unique<CUDAAllocator>(device_id, CUDA, stream); },
+        narrow<OrtDevice::DeviceId>(device_id_),
+        false);
+    allocators.emplace_back(CreateAllocator(default_memory_info));
+  } else {
+    OrtArenaCfg arena_cfg(0, static_cast<int>(ArenaExtendStrategy::kNextPowerOfTwo),
+                          -1, -1, -1, -1);
+    AllocatorCreationInfo default_memory_info(
+        [](OrtDevice::DeviceId device_id) { return std::make_unique<CUDAAllocator>(device_id, CUDA); },
+        narrow<OrtDevice::DeviceId>(device_id_),
+        true,
+        arena_cfg,
+        // make it stream aware
+        true);
+    allocators.emplace_back(CreateAllocator(default_memory_info));
+  }
 
-  AllocatorCreationInfo pinned_allocator_info(
+  allocators.emplace_back(CreateAllocator(AllocatorCreationInfo(
       [](OrtDevice::DeviceId device_id) {
         return std::make_unique<CUDAPinnedAllocator>(device_id, CUDA_PINNED);
       },
-      narrow<OrtDevice::DeviceId>(device_id_));
+      narrow<OrtDevice::DeviceId>(device_id_))));
 
-  return std::vector<AllocatorPtr>{CreateAllocator(default_memory_info), CreateAllocator(pinned_allocator_info)};
+  return allocators;
 }
 
 std::unique_ptr<IDataTransfer> NvExecutionProvider::GetDataTransfer() const {
@@ -3065,16 +3084,21 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromGraph(const GraphViewer& gr
     }
 
     // Set execution context memory
-    if (require_io_binding) {
+    IAllocatorUniquePtr<void> context_memory = nullptr;
+    if (require_io_binding || force_reallocate_workspace_memory_) {
       size_t mem_size = trt_engine->getDeviceMemorySizeV2();
       if (trt_state->is_dynamic_shape) {
         mem_size = trt_context->updateDeviceMemorySizeForShapes();
       }
-      if (trt_state->context_memory_size != mem_size) {
+      if (trt_state->context_memory_size != mem_size && !force_reallocate_workspace_memory_) {
         LOGS_DEFAULT(INFO) << "[NvTensorRTRTX EP] A new context memory was allocated with size " << mem_size;
         trt_state->context_memory = IAllocator::MakeUniquePtrFromOrtAllocator<void>(alloc, mem_size, true /*use_reserve*/);
+        // trt_state->context_memory = IAllocator::MakeUniquePtr<void>(alloc, mem_size, false /*use_reserve*/, stream);
         trt_state->context_memory_size = mem_size;
         trt_context->setDeviceMemoryV2(trt_state->context_memory.get(), mem_size);
+      } else {
+        context_memory = IAllocator::MakeUniquePtrFromOrtAllocator<void>(alloc, mem_size, false /*use_reserve*/);
+        trt_context->setDeviceMemoryV2(context_memory.get(), mem_size);
       }
     }
 
@@ -3385,17 +3409,21 @@ Status NvExecutionProvider::CreateNodeComputeInfoFromPrecompiledEngine(const Gra
     }
 
     // Set execution context memory
-    if (require_io_binding) {
+    IAllocatorUniquePtr<void> context_memory = nullptr;
+    if (require_io_binding || force_reallocate_workspace_memory_) {
       size_t mem_size = trt_engine->getDeviceMemorySizeV2();
       if (trt_state->is_dynamic_shape) {
         mem_size = trt_context->updateDeviceMemorySizeForShapes();
       }
-      if (trt_state->context_memory_size != mem_size) {
+      if (trt_state->context_memory_size != mem_size && !force_reallocate_workspace_memory_) {
         LOGS_DEFAULT(INFO) << "[NvTensorRTRTX EP] A new context memory was allocated with size " << mem_size;
         trt_state->context_memory = IAllocator::MakeUniquePtrFromOrtAllocator<void>(alloc, mem_size, true /*use_reserve*/);
         // trt_state->context_memory = IAllocator::MakeUniquePtr<void>(alloc, mem_size, false /*use_reserve*/, stream);
         trt_state->context_memory_size = mem_size;
         trt_context->setDeviceMemoryV2(trt_state->context_memory.get(), mem_size);
+      } else {
+        context_memory = IAllocator::MakeUniquePtrFromOrtAllocator<void>(alloc, mem_size, false /*use_reserve*/);
+        trt_context->setDeviceMemoryV2(context_memory.get(), mem_size);
       }
     }
 

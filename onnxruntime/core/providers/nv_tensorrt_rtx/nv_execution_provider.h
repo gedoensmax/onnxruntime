@@ -353,6 +353,7 @@ class NvExecutionProvider : public IExecutionProvider {
   size_t min_subgraph_size_ = 1;
   size_t max_workspace_size_ = 0;
   size_t max_shared_mem_size_ = 0;
+  bool force_reallocate_workspace_memory_ = false;
   bool force_sequential_engine_build_ = false;
   bool dump_subgraphs_ = false;
   bool engine_cache_enable_ = false;
