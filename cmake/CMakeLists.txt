@@ -46,6 +46,8 @@ endif()
 if (MSVC)
   #  Make sure Visual Studio sets __cplusplus macro correctly: https://learn.microsoft.com/en-us/cpp/build/reference/zc-cplusplus
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
+  message(STATUS "Setting MSVC debug information format to 'Embedded'")
+  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
 endif()
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -1848,6 +1850,10 @@ else()
 
     include("${CMAKE_CURRENT_SOURCE_DIR}/arm64x.cmake")
   endif()
+endif()
+
+if (onnxruntime_BUILD_CPP_SAMPLES)
+  include(onnxruntime_cpp_sample.cmake)
 endif()
 
 if(onnxruntime_BUILD_UNIT_TESTS)
